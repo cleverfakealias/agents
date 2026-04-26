@@ -66,6 +66,7 @@ Without explicit user instruction:
 - `ai/global_core.md` — universal contract; changes propagate to every consuming repo. Discuss before editing.
 - `ai/shims/*.md` — per-model contracts. Edit when a model's behavior changes upstream; don't restate `global_core` rules into them.
 - `ai/SKILL-implementation.md` — execution contract for the skill. Update in lockstep with `SKILL.md` whenever flow changes.
+- Secret files: `.env*`, `.dev.vars*`, `.envrc`, `secrets.*`, `*.pem`, `*.key` — should not exist in this repo; if one appears, do not read it.
 - `.git/` — never.
 
 ## Environment Variables
@@ -74,5 +75,6 @@ None. This repo holds templates and instructions, not runtime config.
 
 ## Secrets Policy
 
+See `<rules id="secrets">` in `global_core.md`. Repo-specific:
 - This repo holds no secrets and must never. Templates reference variable **names** only.
-- If you add an example with a value, use `EXAMPLE_API_KEY=<your-key-here>` placeholder syntax — never a real-looking string.
+- Example placeholders use the literal form `EXAMPLE_API_KEY` — never a real-looking string like `sk-...`.

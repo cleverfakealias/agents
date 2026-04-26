@@ -55,4 +55,5 @@ do-not-touch: <!-- lockfiles and generated dirs, e.g. pnpm-lock.yaml, dist/, .ne
 
 # --- Secrets Policy ---
 
-secrets-policy: Never commit secrets. Local secrets in .env or .dev.vars (gitignored). Production secrets via platform secret store (GitHub Secrets, Cloudflare, etc.).
+secrets-policy: Local via secret loader (dotenvx, direnv, doppler, op://). Prod via platform secret store (GitHub Secrets, Cloudflare, AWS Secrets Manager). Code references env var NAMES only — never values.
+agent-no-read: .env, .env.*, .envrc, .dev.vars*, secrets.*, *.pem, *.key, *.p12, *.pfx, id_rsa*, .npmrc, .pypirc, ~/.aws/credentials, ~/.config/gcloud/, gha-creds-*.json, .terraformrc

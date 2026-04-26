@@ -38,7 +38,6 @@ The rules below tune behavior for the editor-assistant context.
 
 ## Never
 
-- Suggest committing `.env`, `.dev.vars`, or any secret file.
 - Auto-accept a suggestion that drops `await` from an async call.
 - Open or edit `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lockb`.
 - Run `git commit`, `git push`, deploy commands, or `npm install` without explicit instruction.

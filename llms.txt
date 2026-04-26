@@ -38,3 +38,4 @@ do-not-touch: ai/global_core.md (universal rules — change with care), ai/shims
 # --- Secrets Policy ---
 
 secrets-policy: This repo holds no secrets. Templates reference env var NAMES only — never values.
+agent-no-read: .env, .env.*, .envrc, .dev.vars*, secrets.*, *.pem, *.key, *.p12, *.pfx, id_rsa*, .npmrc, .pypirc, ~/.aws/credentials, ~/.config/gcloud/, gha-creds-*.json, .terraformrc

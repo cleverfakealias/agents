@@ -59,17 +59,19 @@ src/
 <!-- Files, paths, or patterns the agent must never modify without explicit instruction. -->
 - `pnpm-lock.yaml` / `package-lock.json` — never hand-edit
 - Generated dirs: `dist/`, `.astro/`, `.next/`, `build/`
+- Secret files: `.env*`, `.dev.vars*`, `.envrc`, `secrets.*`, `*.pem`, `*.key` — agent must not read or write; defer to user
 - <!-- repo-specific: e.g. migrations/*.sql once shipped, public/legacy/* -->
 
 ## Environment Variables
 
-<!-- Names only, never values. -->
+<!-- Names only, never values. Agent proposes new names; user sets values in their secret store. -->
 | Variable | Required | Notes |
 |---|---|---|
-| `EXAMPLE_API_KEY` | yes | local: `.dev.vars`; prod: platform secret store |
+| `EXAMPLE_API_KEY` | yes | local: secret loader (dotenvx / direnv / `op://`); prod: platform secret store |
 
 ## Secrets Policy
 
-- Local: `.dev.vars` (gitignored).
-- Prod: deployment platform secret store.
-- Never commit, log, or echo secrets in test output.
+See `<rules id="secrets">` in global_core.md. Repo-specific notes only:
+- Local loader: <!-- e.g. dotenvx, direnv, doppler, 1Password CLI (`op run`) -->
+- Prod store: <!-- e.g. Cloudflare secrets, AWS Secrets Manager, GitHub Actions secrets -->
+- Pre-commit scanner: <!-- e.g. gitleaks, trufflehog -->

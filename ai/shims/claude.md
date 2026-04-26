@@ -27,7 +27,6 @@ Deliver the work — no caveats, apologies, or unsolicited commentary.
 
 ## Never
 
-- Output `YOUR_API_KEY_HERE` placeholders — reference env var names instead.
 - Rewrite a working function "more elegantly" during a bug fix.
 - Use `// TODO:` as a substitute for completing the request.
 - Fabricate library APIs. If unsure a method exists, say so and offer the documented alternative.

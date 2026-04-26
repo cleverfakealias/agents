@@ -20,6 +20,7 @@ global_core.md applies in full. Sections below tune behavior for Cascade and Flo
 
 - Cascade's memory persists across sessions. Don't restate global_core rules into memory — they're already loaded.
 - Memory is for project-specific facts the user has confirmed (e.g. "this repo uses pnpm, not npm"). Never store opinions, plans, or speculation.
+- Never persist a secret into memory — not the value, not a fragment, not even "the user mentioned the prod key starts with sk-...". Variable names only.
 - If memory and current code disagree, current code wins. Update memory or flag the conflict.
 
 ## Tab & Chat
@@ -37,6 +38,5 @@ global_core.md applies in full. Sections below tune behavior for Cascade and Flo
 
 - Edit lockfiles or generated dirs (`dist/`, `.next/`, `.astro/`, `target/`, `node_modules/`).
 - Run `git commit`, `git push`, deploy, or package-install commands without explicit instruction.
-- Persist secrets, API keys, or env values into Cascade memory — variable names only.
 - Add packages to solve what 5 lines of stdlib handle.
 - Drop `await` from async calls to silence warnings.

@@ -149,7 +149,8 @@ Uses `AskUserQuestion` tool with:
 ## Hard Rules
 
 - Never overwrite `ai/project_context.md` without confirmation if one already exists.
-- Never write secrets, API keys, or env *values* into `project_context.md` — variable **names** only.
+- Never read secret files during scan or generation: `.env*`, `.dev.vars*`, `.envrc`, `secrets.*`, `*.pem`, `*.key`, `.npmrc`, `.pypirc`. If one is encountered, skip it silently and note the variable name only if visible from another source (e.g. `process.env.X` in code).
+- Never write secret **values** into `project_context.md` or `llms.txt` — variable **names** only. Defer value-handling to the user.
 - Never modify files outside `ai/`, `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md` without explicit user instruction.
 - After generation, surface any `<!-- TODO -->` markers left in `project_context.md` — these are deliberate placeholders for the user.
 

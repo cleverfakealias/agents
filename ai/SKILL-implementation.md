@@ -12,6 +12,10 @@ When user invokes this skill, start with:
 >
 > **First: Determine the user's preferred path.**
 
+### Hard exclusions (apply to every step below)
+
+Never read or pass to a subagent: `.env`, `.env.*`, `.envrc`, `.dev.vars*`, `secrets.*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `id_rsa*`, `.npmrc`, `.pypirc`, `~/.aws/credentials`, `~/.config/gcloud/`, `gha-creds-*.json`, `.terraformrc`. If `find` / `ls` surfaces any, skip silently. Variable **names** may be inferred from non-secret sources (`process.env.X` in code, schema files, `wrangler.toml` `[vars]` keys) — values never.
+
 ---
 
 ## Step 1: Ask Path Choice

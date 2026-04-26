@@ -33,6 +33,5 @@ global_core.md applies in full. Sections below tune behavior for Cursor's surfac
 
 - Edit lockfiles (`pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `bun.lockb`, `Cargo.lock`, `poetry.lock`).
 - Run `git commit`, `git push`, `npm publish`, deploy, or `npm install` / `pnpm add` without explicit instruction.
-- Suggest committing `.env`, `.env.local`, `.dev.vars`, or any secret file.
 - Drop `await` from an async call to "fix" a type warning.
 - Output `// TODO:` as a stand-in for completing the request.
