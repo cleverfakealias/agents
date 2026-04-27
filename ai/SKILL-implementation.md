@@ -398,17 +398,20 @@ Write to: `AGENTS.md` (repo root)
 
 ### 2B. Ask for Optional Outputs
 
+Cursor and Windsurf both read `AGENTS.md` natively, so a generated file is only needed if the user actually leans on `.cursor/rules/*.mdc` or `.windsurfrules` / `global_rules.md`. Default is **AGENTS.md only** — generate the others only when requested.
+
 ```
-Question: "Would you also like me to generate model-specific files?"
+Question: "Generate any model-specific files in addition to AGENTS.md?"
 Header: "Additional Outputs"
+multiSelect: true
 Options:
-  1. "CLAUDE.md only" (Claude Code, claude.ai, Anthropic API)
-  2. ".github/copilot-instructions.md only" (GitHub Copilot)
-  3. "Both"
-  4. "Neither (just AGENTS.md)"
+  1. "CLAUDE.md" (Claude Code, claude.ai, Anthropic API)
+  2. ".github/copilot-instructions.md" (GitHub Copilot)
+  3. ".cursor/rules/agents.mdc" (Cursor — only if you use scoped rules)
+  4. ".windsurfrules" + "global_rules.md" (Windsurf — only if you use Cascade rules files)
 ```
 
-**Store choice.**
+**Store choice. If none selected, skip 2C–2F and go to Step 3.**
 
 ### 2C. Generate CLAUDE.md (if requested)
 
@@ -458,6 +461,60 @@ Concatenate:
 
 Write to: `.github/copilot-instructions.md`
 
+### 2E. Generate `.cursor/rules/agents.mdc` (if requested)
+
+Create `.cursor/rules/` directory if it doesn't exist.
+
+Read:
+- `ai/shims/cursor.md`
+- `ai/global_core.md`
+- `ai/project_context.md`
+
+Concatenate:
+
+```
+[contents of cursor.md]
+
+---
+
+[contents of global_core.md]
+
+---
+
+[contents of project_context.md]
+```
+
+Write to: `.cursor/rules/agents.mdc`
+
+> Cursor reads `AGENTS.md` natively. This file is only needed when the user wants the rules to participate in Cursor's `.cursor/rules/*.mdc` scoping system.
+
+### 2F. Generate Windsurf rules files (if requested)
+
+Read:
+- `ai/shims/windsurf.md`
+- `ai/global_core.md`
+- `ai/project_context.md`
+
+Concatenate (same structure as 2E):
+
+```
+[contents of windsurf.md]
+
+---
+
+[contents of global_core.md]
+
+---
+
+[contents of project_context.md]
+```
+
+Write the same assembled content to **both**:
+- `.windsurfrules` (repo root — workspace-scoped rules)
+- `global_rules.md` (repo root — surfaced into Cascade memory)
+
+> Windsurf reads `AGENTS.md` natively. These files are only needed when the user explicitly relies on Cascade's rule files. If the user only wants one, ask which.
+
 ---
 
 ## Step 3: Report & Next Steps
@@ -477,6 +534,13 @@ After all files are generated, summarize for the user:
 
 [if copilot-instructions.md was generated]
   • .github/copilot-instructions.md
+
+[if cursor rule was generated]
+  • .cursor/rules/agents.mdc
+
+[if windsurf rules were generated]
+  • .windsurfrules
+  • global_rules.md
 
 🔍 Stack detected: [auto-explore only: describe what was found]
 
@@ -508,46 +572,4 @@ Would you like to:
 ```
 
 ### Ambiguous / Multi-Repo Setup
-If multiple conflicting configs found:
-```
-Multiple config files detected (package.json AND pyproject.toml).
-This might be a monorepo or a project with mixed stacks.
-
-Which is primary?
-  1. Node.js (package.json)
-  2. Python (pyproject.toml)
-  3. I'll describe my structure manually
-```
-
-### Already Has project_context.md
-If `ai/project_context.md` already exists:
-```
-⚠️  ai/project_context.md already exists.
-
-Overwrite, merge, or abort?
-  1. Overwrite (replace with new generation)
-  2. Merge (append new content to existing)
-  3. Abort (keep existing, no changes)
-```
-
----
-
-## Key Implementation Notes
-
-1. **File detection**: Use `bash` with `find` or `ls` to check existence without reading large files.
-2. **Parsing**: Read config files with `Read` tool; parse JSON/TOML as needed.
-3. **Template substitution**: Read template, replace HTML comment markers, write result.
-4. **Concatenation**: Use `Read` to get each section, then `Write` to combine.
-5. **Always confirm**: After auto-detection, show user what was found and ask for confirmation.
-6. **Handle empty input**: If user leaves a question blank, that's okay — either use a sensible default or omit that section.
-7. **Preserve formatting**: When writing files, maintain markdown structure and indentation.
-
----
-
-## User Experience Goals
-
-- **Quick**: Auto-explore should take <2 min. Manual should take <5 min.
-- **Safe**: Never overwrite without asking. Always show what's detected.
-- **Helpful**: Provide good examples and placeholders. Explain what each field means.
-- **Flexible**: Let users skip optional fields. Offer catch-all "anything else" to capture nuance.
-- **Clear**: Report what was generated. Tell them what to do next.
+If
