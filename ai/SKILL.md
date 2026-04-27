@@ -48,17 +48,23 @@ You confirm detected values, then provide only:
 ### What Gets Generated
 ```
 ai/
-├── global_core.md         ← (unchanged — universal rules)
-├── project_context.md     ← (GENERATED: filled with detected + provided values)
-├── README.md              ← (unchanged)
-├── SKILL.md               ← (this file)
+├── global_core.md              ← (unchanged — universal rules)
+├── project_context.md          ← (GENERATED: filled with detected + provided values)
+├── project_context.template.md ← (unchanged — template the skill fills in)
+├── llms-template.txt           ← (unchanged — template for llms.txt)
+├── README.md                   ← (unchanged)
+├── SKILL.md                    ← (this file)
+├── SKILL-implementation.md     ← (unchanged — execution contract)
 └── shims/
-    ├── claude.md          ← (unchanged)
-    ├── openai.md          ← (unchanged)
-    ├── gemini.md          ← (unchanged)
-    └── copilot.md         ← (unchanged)
+    ├── claude.md               ← (unchanged)
+    ├── openai.md               ← (unchanged)
+    ├── gemini.md               ← (unchanged)
+    ├── copilot.md              ← (unchanged)
+    ├── cursor.md               ← (unchanged)
+    └── windsurf.md             ← (unchanged)
 
-AGENTS.md                   ← (GENERATED: global_core + project_context)
+AGENTS.md                       ← (GENERATED: global_core + project_context)
+llms.txt                        ← (GENERATED: machine-readable index)
 ```
 
 ---
@@ -84,10 +90,17 @@ Same as auto-explore (see above).
 ## After Generation
 
 ### Outputs
+
+Always generated:
 - **`ai/project_context.md`** — Your project specifics. Assembled into every prompt.
-- **`AGENTS.md`** (repo root) — `global_core.md` + `project_context.md`. Read by Claude Code, Copilot, Cursor, Gemini CLI, etc.
-- **`CLAUDE.md`** (optional) — Claude-specific overrides. Takes precedence over `AGENTS.md` in Claude products.
-- **`.github/copilot-instructions.md`** (optional) — GitHub Copilot reads this in VS Code.
+- **`llms.txt`** (repo root) — Machine-readable index per [llmstxt.org](https://llmstxt.org).
+- **`AGENTS.md`** (repo root) — `global_core.md` + `project_context.md`. Read by Claude Code, Copilot, Cursor, Windsurf, Gemini CLI, etc.
+
+Optional (only if requested — Cursor and Windsurf already read `AGENTS.md`):
+- **`CLAUDE.md`** — Claude-specific overrides. Takes precedence over `AGENTS.md` in Claude products.
+- **`.github/copilot-instructions.md`** — GitHub Copilot reads this in VS Code.
+- **`.cursor/rules/agents.mdc`** — Generate only if you use Cursor's scoped-rules system.
+- **`.windsurfrules`** + **`global_rules.md`** — Generate only if you use Windsurf's Cascade rule files.
 
 ### Dot Prefix & Git
 Files created as `ai/` (no dot) for Obsidian compatibility. When pushing to GitHub:
@@ -109,63 +122,6 @@ Or keep `ai/` in your repo and document in `.gitignore` if you prefer.
 
 ---
 
-## Implementation Notes
+## Implementation
 
-### Auto-Explore Detection Order
-Checks in this order (first match wins for primary language):
-
-| Signal | Inferred |
-|---|---|
-| `package.json` + `tsconfig.json` | Node.js + TypeScript |
-| `package.json` | Node.js + JavaScript |
-| `pyproject.toml` | Python |
-| `Cargo.toml` | Rust |
-| `go.mod` | Go |
-| `Gemfile` | Ruby |
-| `composer.json` | PHP |
-| `pom.xml` / `build.gradle` | Java / Kotlin |
-
-Then reads for:
-- Framework hints: `astro.config.*`, `next.config.*`, `vite.config.*`, `wrangler.toml`
-- Key deps: top 3–5 by relevance (test runner, ORM, validator)
-- Scripts: `dev`, `build`, `typecheck`, `lint`, `test`, `deploy`
-- Structure: scans for `src/`, `lib/`, `app/`, `components/`, `utils/`, etc.
-
-### Manual Questions Implementation
-Uses `AskUserQuestion` tool with:
-- Single-select for type (Node, Python, etc.)
-- Text input for name, purpose, owner, stack, custom rules, catch-all
-- Clear labels and descriptions for each
-
-### File Generation
-- Reads `project_context.template.md` from `ai/` folder
-- Replaces HTML comment placeholders with detected/provided values
-- Writes to `ai/project_context.md`
-- Concatenates `ai/global_core.md` + `ai/project_context.md` → `AGENTS.md` (repo root)
-- Optional: generates `CLAUDE.md` and `.github/copilot-instructions.md`
-
----
-
-## Hard Rules
-
-- Never overwrite `ai/project_context.md` without confirmation if one already exists.
-- Never read secret files during scan or generation: `.env*`, `.dev.vars*`, `.envrc`, `secrets.*`, `*.pem`, `*.key`, `.npmrc`, `.pypirc`. If one is encountered, skip it silently and note the variable name only if visible from another source (e.g. `process.env.X` in code).
-- Never write secret **values** into `project_context.md` or `llms.txt` — variable **names** only. Defer value-handling to the user.
-- Never modify files outside `ai/`, `AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md` without explicit user instruction.
-- After generation, surface any `<!-- TODO -->` markers left in `project_context.md` — these are deliberate placeholders for the user.
-
----
-
-## Troubleshooting
-
-**"Can't find package.json / pyproject.toml"**
-→ Auto-explore works best in repo roots. If you're in a subdirectory, manually specify the project type.
-
-**"Detected wrong framework"**
-→ Use manual mode to override, or confirm the detection and edit `project_context.md` afterward.
-
-**"What if I have multiple packages / monorepo?"**
-→ Use manual mode and describe your structure in the "Stack details" and "Project Structure" sections.
-
-**"Dot prefix isn't working in Obsidian"**
-→ Keeping `ai/` is fine. GitHub convention is `.ai/` — document both in `README.md` and rename before pushing if you want standards compliance.
+Detection logic, AskUserQuestion payloads, template-substitution rules, error handling, hard rules, and troubleshooting all live in **[`SKILL-implementation.md`](SKILL-implementation.md)** — read it before executing the skill. This page stays orientation-only on purpose; one source of truth per concern.

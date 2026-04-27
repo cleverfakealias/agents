@@ -137,7 +137,7 @@ Read more: https://llmstxt.org
 - **SKILL-implementation.md**: Detailed step-by-step logic Claude follows (auto-explore detection, template substitution, file generation, error handling).
 
 ### shims/
-Model-specific overrides (≤30 lines each). Only include if the tool reads its own file or you need targeted changes. Never duplicate `global_core.md`.
+Model-specific overrides (≤50 lines each). Only include if the tool reads its own file or you need targeted changes. Never duplicate `global_core.md`.
 - **claude.md**: Specific to Claude Code, claude.ai, Anthropic API
 - **copilot.md**: Specific to GitHub Copilot
 - **gemini.md**: Specific to Google Gemini
@@ -152,17 +152,34 @@ Model-specific overrides (≤30 lines each). Only include if the tool reads its 
 The skill does this automatically, but here's how it works:
 
 ### Manual Assembly (bash)
+
+Sections are joined with a `---` separator so each block stays parseable on its own.
+
 ```bash
-# AGENTS.md = universal rules + project context
-cat ai/global_core.md ai/project_context.md > AGENTS.md
+# AGENTS.md = global_core + project_context
+printf '%s\n\n---\n\n%s\n' "$(cat ai/global_core.md)" "$(cat ai/project_context.md)" > AGENTS.md
 
 # Claude-specific (optional)
-cat ai/shims/claude.md ai/global_core.md ai/project_context.md > CLAUDE.md
+printf '%s\n\n---\n\n%s\n\n---\n\n%s\n' \
+  "$(cat ai/shims/claude.md)" "$(cat ai/global_core.md)" "$(cat ai/project_context.md)" \
+  > CLAUDE.md
 
 # GitHub Copilot (optional)
 mkdir -p .github
-cat ai/shims/copilot.md ai/global_core.md ai/project_context.md \
+printf '%s\n\n---\n\n%s\n\n---\n\n%s\n' \
+  "$(cat ai/shims/copilot.md)" "$(cat ai/global_core.md)" "$(cat ai/project_context.md)" \
   > .github/copilot-instructions.md
+
+# Cursor scoped rule (optional — only if you use .cursor/rules/*.mdc)
+mkdir -p .cursor/rules
+printf '%s\n\n---\n\n%s\n\n---\n\n%s\n' \
+  "$(cat ai/shims/cursor.md)" "$(cat ai/global_core.md)" "$(cat ai/project_context.md)" \
+  > .cursor/rules/agents.mdc
+
+# Windsurf rules files (optional — only if you use Cascade rule files)
+printf '%s\n\n---\n\n%s\n\n---\n\n%s\n' \
+  "$(cat ai/shims/windsurf.md)" "$(cat ai/global_core.md)" "$(cat ai/project_context.md)" \
+  | tee .windsurfrules > global_rules.md
 ```
 
 ### Programmatic Assembly (TypeScript/JavaScript)
@@ -229,7 +246,7 @@ git submodule update --remote --merge
 Edit freely. This file is repo-specific. Keep it ≤120 lines.
 
 ### Adding a Model Shim
-1. Create `ai/shims/<model>.md` (≤30 lines)
+1. Create `ai/shims/<model>.md` (≤50 lines)
 2. Only add model-specific overrides — never duplicate `global_core.md`
 3. Test the assembly: invoke the skill or manually concatenate and verify agents still follow edit-discipline
 4. Commit
@@ -248,16 +265,4 @@ Edit freely. This file is repo-specific. Keep it ≤120 lines.
 ## Troubleshooting
 
 **Q: I invoked the skill but it's asking me project type when I expected auto-explore.**
-A: Auto-explore only works if it finds config files (package.json, pyproject.toml, etc.) in your repo. If none exist, the skill falls back to manual mode.
-
-**Q: The skill detected the wrong framework.**
-A: Confirm the detection and edit `ai/project_context.md` afterward, or use manual mode to skip detection.
-
-**Q: Do I need to commit AGENTS.md?**
-A: Yes. It's the contract between humans and agents. Commit it alongside your code.
-
-**Q: Should I commit `ai/` folder changes?**
-A: Yes, if they're repo-specific (project_context.md changes). If using a submodule for org-wide standards, only commit submodule pointer updates.
-
-**Q: Can I use this with other teams / orgs?**
-A: Absolutely. This is a reusable template. Fork the repo, customize global_core.md for your org's rules, and share via submodule or CI sync.
+A: Auto-explore only works if it finds config fi
