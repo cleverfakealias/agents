@@ -1,4 +1,4 @@
-# SKILL Implementation — Interactive .ai/ Setup
+# SKILL Implementation — Interactive .agents/ Setup
 
 **This document describes the detailed logic Claude executes when the SKILL.md is invoked.**
 
@@ -8,7 +8,7 @@
 
 When user invokes this skill, start with:
 
-> You are setting up an interactive `.ai/` agent-standards folder for this project. You'll help the user either auto-explore their codebase or answer guided questions. At the end, you'll generate `project_context.md` and assemble `AGENTS.md`.
+> You are setting up an interactive `.agents/` agent-standards folder for this project. You'll help the user either auto-explore their codebase or answer guided questions. At the end, you'll generate `project_context.md` and assemble `AGENTS.md`.
 >
 > **First: Determine the user's preferred path.**
 
@@ -178,7 +178,7 @@ Examples: Custom code rules, testing setup, git workflow, env variables, secrets
 
 ### A8. Generate `project_context.md` (Path A)
 
-Read the template: `ai/project_context.template.md`
+Read the template: `.agents/project_context.template.md`
 
 Replace placeholders:
 - `<!-- repo name -->` → detected project name + user input
@@ -191,11 +191,11 @@ Replace placeholders:
 - `<!-- Boundaries section -->` → fill with detected lockfiles + build dirs
 - **Append any "anything else" content at the end** (or in appropriate sections)
 
-Write to: `ai/project_context.md`
+Write to: `.agents/project_context.md`
 
 ### A9. Generate `llms.txt` (Path A)
 
-Read the template: `ai/llms-template.txt`
+Read the template: `.agents/llms-template.txt`
 
 Replace placeholders with detected values:
 - `<!-- project name -->` → detected project name
@@ -329,7 +329,7 @@ Placeholder: "Git workflow, secrets policy, env variables, deployment platform, 
 
 ### B8. Generate `project_context.md` (Path B)
 
-Read the template: `ai/project_context.template.md`
+Read the template: `.agents/project_context.template.md`
 
 Replace placeholders with user input:
 - `<!-- repo name -->` → from B1 Q1
@@ -343,11 +343,11 @@ Replace placeholders with user input:
 - `<!-- Boundaries -->` → add standard lockfiles/build dirs for detected type
 - **Append any "anything else" content at the end** (from B7)
 
-Write to: `ai/project_context.md`
+Write to: `.agents/project_context.md`
 
 ### B9. Generate `llms.txt` (Path B)
 
-Read the template: `ai/llms-template.txt`
+Read the template: `.agents/llms-template.txt`
 
 Replace placeholders with user input:
 - `<!-- project name -->` → from B1 Q1
@@ -381,8 +381,8 @@ Proceed to **Step 2: Assembly** below.
 ### 2A. Generate `AGENTS.md` (Always)
 
 Read:
-- `ai/global_core.md`
-- `ai/project_context.md` (just generated)
+- `.agents/global_core.md`
+- `.agents/project_context.md` (just generated)
 
 Concatenate with a separator:
 
@@ -416,9 +416,9 @@ Options:
 ### 2C. Generate CLAUDE.md (if requested)
 
 Read:
-- `ai/shims/claude.md`
-- `ai/global_core.md`
-- `ai/project_context.md`
+- `.agents/shims/claude.md`
+- `.agents/global_core.md`
+- `.agents/project_context.md`
 
 Concatenate:
 
@@ -441,9 +441,9 @@ Write to: `CLAUDE.md` (repo root)
 Create `.github/` directory if it doesn't exist.
 
 Read:
-- `ai/shims/copilot.md`
-- `ai/global_core.md`
-- `ai/project_context.md`
+- `.agents/shims/copilot.md`
+- `.agents/global_core.md`
+- `.agents/project_context.md`
 
 Concatenate:
 
@@ -466,9 +466,9 @@ Write to: `.github/copilot-instructions.md`
 Create `.cursor/rules/` directory if it doesn't exist.
 
 Read:
-- `ai/shims/cursor.md`
-- `ai/global_core.md`
-- `ai/project_context.md`
+- `.agents/shims/cursor.md`
+- `.agents/global_core.md`
+- `.agents/project_context.md`
 
 Concatenate:
 
@@ -491,9 +491,9 @@ Write to: `.cursor/rules/agents.mdc`
 ### 2F. Generate Windsurf rules files (if requested)
 
 Read:
-- `ai/shims/windsurf.md`
-- `ai/global_core.md`
-- `ai/project_context.md`
+- `.agents/shims/windsurf.md`
+- `.agents/global_core.md`
+- `.agents/project_context.md`
 
 Concatenate (same structure as 2E):
 
@@ -517,6 +517,88 @@ Write the same assembled content to **both**:
 
 ---
 
+## Step 2.5: Optional Context Layers
+
+These layers extend the contract beyond behavior rules into **topology** (architecture), **work units** (intents), and **directory-local context** (nested AGENTS.md). Each is independent — opt in per layer.
+
+### 2.5A. Ask Which Layers to Scaffold
+
+```
+Question: "Scaffold any optional context layers?"
+Header: "Context Layers"
+multiSelect: true
+Options:
+  1. "Architecture (.agents/architecture/)"
+     Description: "Mermaid topology diagrams (system, dataflow, deployment) + ADR folder. Best for non-trivial systems."
+  2. "Intents (.agents/intents/)"
+     Description: "Spec-driven work units. Binding scope kills off-scope drift. Highest daily-leverage layer."
+  3. "Nested AGENTS.md scaffolds"
+     Description: "Per-directory AGENTS.md for directories with local invariants. Skill identifies candidates; user confirms."
+```
+
+**Store selections. If none, skip to Step 3.**
+
+### 2.5B. Generate Architecture Layer (if requested)
+
+Create `.agents/architecture/` and `.agents/architecture/decisions/`. Copy templates verbatim:
+
+- `.agents/architecture/system.template.mmd` → `.agents/architecture/system.mmd`
+- `.agents/architecture/dataflow.template.mmd` → `.agents/architecture/dataflow.mmd`
+- `.agents/architecture/deployment.template.mmd` → `.agents/architecture/deployment.mmd`
+- `.agents/architecture/decisions/0000-template.md` (leave as-is — it's the template, not an ADR)
+
+For each diagram, if auto-explore detected real values (services, datastores, framework), pre-populate node labels. Otherwise leave the template placeholders so the user fills them in.
+
+Uncomment in `llms.txt`:
+```
+architecture-dir: .agents/architecture/
+architecture-system: .agents/architecture/system.mmd
+architecture-dataflow: .agents/architecture/dataflow.mmd
+architecture-deployment: .agents/architecture/deployment.mmd
+adr-dir: .agents/architecture/decisions/
+```
+
+### 2.5C. Generate Intents Layer (if requested)
+
+Create the folder skeleton:
+
+```
+.agents/intents/
+  README.md                    # copy from template
+  intent.template.md           # copy from template
+  open/.gitkeep
+  in-flight/.gitkeep
+  done/.gitkeep
+  abandoned/.gitkeep
+```
+
+Do **not** generate a starter intent — intents are written by the user when work begins.
+
+Uncomment in `llms.txt`:
+```
+intents-dir: .agents/intents/
+intents-open: .agents/intents/open/
+intents-in-flight: .agents/intents/in-flight/
+intents-done: .agents/intents/done/
+```
+
+### 2.5D. Generate Nested AGENTS.md Scaffolds (if requested)
+
+Identify candidate directories:
+
+- Has ≥5 source files, OR
+- Hosts a public API surface (e.g. `routes/`, `api/`, `pages/api/`), OR
+- Owns a critical concern (auth, payments, billing, migrations).
+
+Use `AskUserQuestion` to confirm which candidates to scaffold (multiSelect). For each confirmed dir, copy `.agents/nested-agents-md.template.md` to `<dir>/AGENTS.md` with `# <dir>/` filled in. Leave the rest as placeholders — the user knows the local invariants.
+
+Uncomment in `llms.txt`:
+```
+nested-agents-md: enabled
+```
+
+---
+
 ## Step 3: Report & Next Steps
 
 After all files are generated, summarize for the user:
@@ -525,7 +607,7 @@ After all files are generated, summarize for the user:
 ✅ Setup Complete!
 
 📁 Files created:
-  • ai/project_context.md
+  • .agents/project_context.md
   • llms.txt
   • AGENTS.md
 
@@ -542,6 +624,16 @@ After all files are generated, summarize for the user:
   • .windsurfrules
   • global_rules.md
 
+[if architecture layer was generated]
+  • .agents/architecture/{system,dataflow,deployment}.mmd
+  • .agents/architecture/decisions/0000-template.md
+
+[if intents layer was generated]
+  • .agents/intents/{README.md, intent.template.md, open/, in-flight/, done/, abandoned/}
+
+[if nested AGENTS.md scaffolds were generated]
+  • <dir>/AGENTS.md  (one per confirmed candidate directory)
+
 🔍 Stack detected: [auto-explore only: describe what was found]
 
 📋 Open TODOs in project_context.md:
@@ -551,8 +643,8 @@ After all files are generated, summarize for the user:
   1. Review AGENTS.md (it's the contract for all agents in this repo)
   2. Review llms.txt (machine-readable index for AI agents — https://llmstxt.org)
   3. Commit both files: git add AGENTS.md llms.txt && git commit -m "Add agent standards (AGENTS.md, llms.txt)"
-  4. (Optional) Rename ai/ to .ai/ before pushing to GitHub for standards compliance
-  5. (Optional) Set up CI to regenerate AGENTS.md and llms.txt on push if you edit .ai/ files
+  4. (Optional) Rename .agents/ to .agents/ before pushing to GitHub for standards compliance
+  5. (Optional) Set up CI to regenerate AGENTS.md and llms.txt on push if you edit .agents/ files
 ```
 
 ---

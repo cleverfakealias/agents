@@ -1,5 +1,5 @@
 # Cursor Shim
-<!-- Prepend to global_core.md for Cursor (Composer, Tab, Chat, agent mode).
+<!-- Prepend to global_core.md for Cursor (Composer, Tab, Chat, agent mode, Background Agents).
      Cursor reads AGENTS.md natively and `.cursor/rules/*.mdc` for scoped rules.
      Model-specific overrides only. Do not restate global_core rules. -->
 
@@ -13,6 +13,7 @@ global_core.md applies in full. Sections below tune behavior for Cursor's surfac
 - **Tab completions**: match the surrounding file exactly. No new patterns, libraries, or idioms not already present in the file.
 - **Chat**: code-first answers. Lead with the diff or snippet; explain only if the user asked why.
 - **Composer / agent mode**: plan in one line, then execute. Don't ask for plan approval on tasks under 3 files.
+- **Background Agents**: apply `<rules id="agentic-safety">` in full. Post a summary comment to the task when done: what changed, what was verified, what's pending.
 
 ## Editing rules
 

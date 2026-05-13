@@ -1,29 +1,31 @@
-# ai/ — AI Agent Standards
+# .agents/ — AI Agent Standards
 
-Source of truth for AI agent behavior across this repo. Automatically scaffolds into **AGENTS.md** and **llms.txt** (machine-readable index) read by Claude Code, Copilot, Cursor, Devin, Windsurf, Gemini CLI, and others. Plus optional model-specific files.
+Source of truth for AI agent behavior across this repo. Automatically scaffolds into **AGENTS.md** and **llms.txt** (machine-readable index) read by Claude Code, Copilot, Cursor, Windsurf, Gemini CLI, Devin, OpenAI Codex, and others.
 
 ---
 
 ## Layout
 
 ```
-ai/
+.agents/
 ├── global_core.md              ← universal rules (loaded into every assembly)
-├── project_context.template.md ← template → copy to project_context.md (fill per-repo)
-├── llms-template.txt           ← template → copy to llms.txt (filled by skill)
-├── SKILL.md                    ← Claude skill: interactive setup (in-repo entry point)
-├── SKILL-implementation.md     ← detailed implementation logic for the skill
+├── project_context.template.md ← template → filled per-repo by the init skill
+├── llms-template.txt           ← template → filled per-repo by the init skill
+├── SKILL.md                    ← skill: interactive repo setup (init)
+├── SKILL-implementation.md     ← detailed implementation logic for the init skill
 ├── README.md                   ← this file
-└── shims/
-    ├── claude.md               ← Claude (Claude Code, claude.ai, Anthropic API)
-    ├── openai.md               ← OpenAI (ChatGPT, GPT-5, o-series, Codex, Assistants API)
-    ├── gemini.md               ← Google Gemini (AI Studio, Vertex, Gemini CLI)
-    ├── copilot.md              ← GitHub Copilot (VS Code, CLI, agent mode)
-    ├── cursor.md               ← Cursor (Composer, Tab, Chat, agent mode)
-    └── windsurf.md             ← Windsurf (Cascade agent, Flows, Tab, Chat)
+├── shims/
+│   ├── claude.md               ← Claude Code, claude.ai Projects, Anthropic API
+│   ├── openai.md               ← ChatGPT, GPT-4.1/5, o3/o4-mini, Codex CLI, Responses API
+│   ├── gemini.md               ← Gemini 2.0/2.5 (AI Studio, Vertex AI, Gemini CLI)
+│   ├── copilot.md              ← GitHub Copilot (VS Code, CLI, agent mode, Workspace)
+│   ├── cursor.md               ← Cursor (Composer, Tab, Chat, Background Agents)
+│   └── windsurf.md             ← Windsurf (Cascade agent, Flows, Tab, Chat)
+└── skills/
+    └── blueprint/
+        ├── SKILL.md            ← skill: plan features → decompose into intents
+        └── SKILL-implementation.md
 ```
-
-**Note on naming:** This folder is `ai/` (no dot) for Obsidian compatibility. When pushing to GitHub, rename to `.ai/` for standards compliance (see [Deployment](#deployment)).
 
 ---
 
@@ -31,16 +33,20 @@ ai/
 
 **Fastest way to set up a new repo with these standards:**
 
-1. Copy this `ai/` folder into your target repo
-2. Read `ai/SKILL.md` in a Claude session
-3. Choose: **auto-explore** (Claude reads your codebase) or **manual questions** (you describe your project)
+1. Copy this `.agents/` folder into your target repo:
+   ```bash
+   cp -r .agents/ /path/to/your-repo/.agents
+   ```
+2. Read `.agents/SKILL.md` in a Claude session
+3. Choose: **auto-explore** (Claude reads your codebase) or **manual questions** (you answer 7 prompts)
 4. Claude generates:
-   - `ai/project_context.md` — your project specifics
+   - `.agents/project_context.md` — your project specifics
    - `llms.txt` — machine-readable index (https://llmstxt.org)
    - `AGENTS.md` — assembled prompt for all agents (global_core + project_context)
-   - Optional: `CLAUDE.md` and `.github/copilot-instructions.md`
+   - Optional: `CLAUDE.md`, `.github/copilot-instructions.md`, `.cursor/rules/agents.mdc`
+5. **Commit** — `AGENTS.md` is the human+agent contract. Check it in.
 
-That's it. Commit and done.
+That's it.
 
 ---
 
@@ -71,7 +77,7 @@ GitHub Copilot reads this in VS Code and other tools.
 
 ## The Skill: Interactive Setup
 
-**`ai/SKILL.md`** — Invoke this in Claude when setting up a new repo.
+**`.agents/SKILL.md`** — Invoke this in Claude when setting up a new repo.
 
 ### Path 1: Auto-Explore
 Claude reads your codebase:
@@ -124,7 +130,7 @@ Template to fill in per-repo. Copy to `project_context.md` (the skill does this)
 ### llms-template.txt
 Template for the machine-readable index. Copy to `llms.txt` (the skill does this):
 - Project metadata (name, description, language, framework, runtime)
-- Pointer to `ai/` folder (for AGENTS.md, llms.txt itself)
+- Pointer to `.agents/` folder (for AGENTS.md, llms.txt itself)
 - Directory mappings (routes, components, utils, styles, API, etc.)
 - Commands (how to dev, build, test, deploy)
 - Lockfiles and build directories (do not touch)
@@ -132,18 +138,31 @@ Template for the machine-readable index. Copy to `llms.txt` (the skill does this
 
 Read more: https://llmstxt.org
 
-### SKILL.md & SKILL-implementation.md
+### SKILL.md & SKILL-implementation.md (init skill)
 - **SKILL.md**: User-facing instructions. What the user sees when they invoke the skill.
 - **SKILL-implementation.md**: Detailed step-by-step logic Claude follows (auto-explore detection, template substitution, file generation, error handling).
 
+### skills/ — Additional Skills
+
+Skills that extend the system after init. Each skill follows the same two-file pattern: `SKILL.md` (orientation + frontmatter for discovery) and `SKILL-implementation.md` (execution contract).
+
+#### skills/blueprint/
+**Feature planning with intents.** The day-to-day companion to the init skill — you run init once to set up a repo, and blueprint every time you want to build something new.
+
+Two modes:
+- **Plan** — guided discovery (what to build, why, constraints) → stack validation → decomposition into PR-sized work units → creates `.agents/intents/open/` files → optionally updates `project_context.md`, `AGENTS.md`, `llms.txt`, and creates ADRs.
+- **Sync** — runs after intents ship; moves files between `open/` → `in-flight/` → `done/`, flags stale in-flight work, regenerates `AGENTS.md` if stale.
+
+Invoke it by reading `.agents/skills/blueprint/SKILL.md` in a Claude session, or using the `blueprint` skill name if installed as a Cowork plugin skill.
+
 ### shims/
 Model-specific overrides (≤50 lines each). Only include if the tool reads its own file or you need targeted changes. Never duplicate `global_core.md`.
-- **claude.md**: Specific to Claude Code, claude.ai, Anthropic API
-- **copilot.md**: Specific to GitHub Copilot
-- **gemini.md**: Specific to Google Gemini
-- **openai.md**: Specific to OpenAI (ChatGPT, API, o-series)
-- **cursor.md**: Specific to Cursor (Composer, Tab, agent mode)
-- **windsurf.md**: Specific to Windsurf (Cascade agent, Flows)
+- **claude.md**: Claude Code, claude.ai Projects, Anthropic API — extended thinking guidance, agentic safety hooks, `TodoWrite` usage
+- **openai.md**: ChatGPT, GPT-4.1/5, o3/o4-mini, Codex CLI, Responses API — reasoning modes, `--approval-mode` guidance
+- **gemini.md**: Gemini 2.0/2.5 (AI Studio, Vertex AI, Gemini CLI) — long-context hygiene, `--sandbox` guidance
+- **copilot.md**: GitHub Copilot (VS Code, CLI, agent mode, Copilot Workspace) — MCP tool-use rules
+- **cursor.md**: Cursor (Composer, Tab, Chat, Background Agents) — background agent summary contract
+- **windsurf.md**: Windsurf (Cascade agent, Flows) — persistent memory rules
 
 ---
 
@@ -157,36 +176,36 @@ Sections are joined with a `---` separator so each block stays parseable on its 
 
 ```bash
 # AGENTS.md = global_core + project_context
-printf '%s\n\n---\n\n%s\n' "$(cat ai/global_core.md)" "$(cat ai/project_context.md)" > AGENTS.md
+printf '%s\n\n---\n\n%s\n' "$(cat .agents/global_core.md)" "$(cat .agents/project_context.md)" > AGENTS.md
 
 # Claude-specific (optional)
 printf '%s\n\n---\n\n%s\n\n---\n\n%s\n' \
-  "$(cat ai/shims/claude.md)" "$(cat ai/global_core.md)" "$(cat ai/project_context.md)" \
+  "$(cat .agents/shims/claude.md)" "$(cat .agents/global_core.md)" "$(cat .agents/project_context.md)" \
   > CLAUDE.md
 
 # GitHub Copilot (optional)
 mkdir -p .github
 printf '%s\n\n---\n\n%s\n\n---\n\n%s\n' \
-  "$(cat ai/shims/copilot.md)" "$(cat ai/global_core.md)" "$(cat ai/project_context.md)" \
+  "$(cat .agents/shims/copilot.md)" "$(cat .agents/global_core.md)" "$(cat .agents/project_context.md)" \
   > .github/copilot-instructions.md
 
 # Cursor scoped rule (optional — only if you use .cursor/rules/*.mdc)
 mkdir -p .cursor/rules
 printf '%s\n\n---\n\n%s\n\n---\n\n%s\n' \
-  "$(cat ai/shims/cursor.md)" "$(cat ai/global_core.md)" "$(cat ai/project_context.md)" \
+  "$(cat .agents/shims/cursor.md)" "$(cat .agents/global_core.md)" "$(cat .agents/project_context.md)" \
   > .cursor/rules/agents.mdc
 
 # Windsurf rules files (optional — only if you use Cascade rule files)
 printf '%s\n\n---\n\n%s\n\n---\n\n%s\n' \
-  "$(cat ai/shims/windsurf.md)" "$(cat ai/global_core.md)" "$(cat ai/project_context.md)" \
+  "$(cat .agents/shims/windsurf.md)" "$(cat .agents/global_core.md)" "$(cat .agents/project_context.md)" \
   | tee .windsurfrules > global_rules.md
 ```
 
 ### Programmatic Assembly (TypeScript/JavaScript)
 ```ts
-import core from './ai/global_core.md?raw';
-import shim from './ai/shims/claude.md?raw';
-import ctx  from './ai/project_context.md?raw';
+import core from './.agents/global_core.md?raw';
+import shim from './.agents/shims/claude.md?raw';
+import ctx  from './.agents/project_context.md?raw';
 
 const systemPrompt = [shim, core, ctx].join('\n\n---\n\n');
 ```
@@ -197,27 +216,15 @@ const systemPrompt = [shim, core, ctx].join('\n\n---\n\n');
 
 ### Pushing to GitHub
 
-This folder is `ai/` for Obsidian compatibility. Before pushing to GitHub, rename to follow standard conventions:
-
-```bash
-# From your repo root
-git mv ai/ .ai/
-git commit -m "Rename ai/ to .ai/ for GitHub standards"
-git push
-```
-
-Alternatively, if you prefer to keep `ai/` in your repo:
-- Add to `.gitignore`: (not needed, but document that this is intentional)
-- Update references in `AGENTS.md` and `llms.txt` if needed
-- Document in this README that your repo uses `ai/` instead of `.ai/`
+Commit `.agents/` as-is. The dotfolder is recognized by all major agent tools.
 
 ### Making This Reusable (Org Template)
 
-If you maintain a central `.ai/` template for your organization:
+If you maintain a central `.agents/` template for your organization:
 
 **Option 1: Git Submodule** (recommended — single source of truth)
 ```bash
-git submodule add https://github.com/<org>/ai-standards .ai
+git submodule add https://github.com/<org>/ai-standards .agents
 git submodule update --remote --merge
 ```
 
@@ -226,9 +233,9 @@ git submodule update --remote --merge
 - name: Sync AI standards
   run: |
     curl -fsSL https://raw.githubusercontent.com/<org>/ai-standards/main/global_core.md \
-         -o ai/global_core.md
+         -o .agents/global_core.md
     curl -fsSL https://raw.githubusercontent.com/<org>/ai-standards/main/shims/claude.md \
-         -o ai/shims/claude.md
+         -o .agents/shims/claude.md
     # ... repeat for other files
 ```
 
@@ -246,7 +253,7 @@ git submodule update --remote --merge
 Edit freely. This file is repo-specific. Keep it ≤120 lines.
 
 ### Adding a Model Shim
-1. Create `ai/shims/<model>.md` (≤50 lines)
+1. Create `.agents/shims/<model>.md` (≤50 lines)
 2. Only add model-specific overrides — never duplicate `global_core.md`
 3. Test the assembly: invoke the skill or manually concatenate and verify agents still follow edit-discipline
 4. Commit

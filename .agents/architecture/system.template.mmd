@@ -1,0 +1,30 @@
+%% System diagram — C4 Container level.
+%% Show the major runtime pieces and the connections that matter for reasoning about change.
+%% Keep ≤30 nodes. Split into a second file if it grows past that.
+
+flowchart LR
+  subgraph external [External]
+    USER([End user])
+    API3RD[Third-party API<br/>e.g. Stripe]
+  end
+
+  subgraph app [Application]
+    WEB[Web app<br/>e.g. Astro 6 + React 19]
+    API[API<br/>e.g. Cloudflare Workers]
+    JOB[Background worker<br/>e.g. Queue consumer]
+  end
+
+  subgraph state [State]
+    DB[(Primary DB<br/>e.g. Postgres)]
+    CACHE[(Cache<br/>e.g. Workers KV)]
+    OBJ[(Object store<br/>e.g. R2)]
+  end
+
+  USER --> WEB
+  WEB --> API
+  API --> DB
+  API --> CACHE
+  API --> API3RD
+  API --> JOB
+  JOB --> DB
+  JOB --> OBJ

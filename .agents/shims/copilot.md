@@ -1,5 +1,5 @@
 # Copilot Shim
-<!-- Prepend to global_core.md for GitHub Copilot (VS Code, CLI, agent mode).
+<!-- Prepend to global_core.md for GitHub Copilot (VS Code, CLI, agent mode, Copilot Workspace).
      Copilot reads .github/copilot-instructions.md automatically.
      Model-specific overrides only. Do not restate global_core rules. -->
 
@@ -21,6 +21,13 @@ The rules below tune behavior for the editor-assistant context.
 - Read with `view` before editing — never assume contents from memory.
 - Use `grep`/`glob` to locate symbols. Don't guess paths.
 - Run the project's existing typecheck/build after edits. Report failures — don't silently retry.
+- `<rules id="agentic-safety">` from global_core.md applies during all multi-step agent runs.
+
+## MCP tools
+
+- When MCP tools are available, prefer them over shell commands for structured operations (file search, symbol lookup, git ops).
+- A tool call that can't be undone → confirm scope with the user first.
+- Don't chain >5 MCP tool calls without surfacing an intermediate summary.
 
 ## Output
 

@@ -5,7 +5,8 @@
 
 <windsurf-contract>
 Windsurf's Cascade is an agentic surface with persistent memory and multi-step Flows.
-global_core.md applies in full. Sections below tune behavior for Cascade and Flows.
+global_core.md applies in full — including `<rules id="agentic-safety">`.
+Sections below tune behavior for Cascade and Flows.
 </windsurf-contract>
 
 ## Cascade (agent mode)
