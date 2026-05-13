@@ -1,9 +1,20 @@
+---
+adr-number: 0000
+title: "<Title in imperative form, e.g. Use Postgres over DynamoDB>"
+status: Proposed   # Proposed | Accepted | Rejected | Superseded | Deprecated
+date: YYYY-MM-DD
+supersedes: null   # or "ADR-0003" if this supersedes a prior decision
+superseded-by: null  # set on the prior ADR when a successor is accepted
+revisit-when: ""
+generated-by: scaffold-adr
+verified-against: "<git HEAD SHA at creation time>"
+verified-at: YYYY-MM-DDTHH:MM:SSZ
+---
+
 # ADR-0000: <Title in imperative form, e.g. "Use Postgres over DynamoDB">
 
-- **Status**: Proposed | Accepted | Superseded by [ADR-NNNN](./NNNN-...md) | Deprecated
-- **Date**: YYYY-MM-DD
-- **Owner**: <person or team>
-- **Deciders**: <names>
+**Owner**: <person or team>
+**Deciders**: <names>
 
 ## Context
 
