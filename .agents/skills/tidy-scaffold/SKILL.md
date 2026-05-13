@@ -25,9 +25,9 @@ After `init-agents-folder`, `scaffold-context`, and `blueprint` have run, the `.
 
 ## Removal Categories
 
-The skill recognizes five categories. Each has its own detection rule (see implementation doc):
+The skill recognizes five categories. Each has its own detection rule (see implementation doc). Category detection runs via five parallel Haiku sub-agents (Phase 0.5); the main agent applies safety filters and mode-specific removal logic.
 
-1. **Consumed templates** — `project_context.template.md`, `llms-template.txt`, `nested-agents-md.template.md` once the generated counterpart exists. Removable: safe, you can re-fetch from upstream if needed.
+1. **Consumed templates** — `project_context.template.md`, `llms-template.txt`, `nested-agents-md.template.md` once the generated counterpart exists, regardless of byte identity. Removable: safe, you can re-fetch from upstream if needed.
 2. **Unused shims** — `.agents/shims/<model>.md` where no corresponding assembled file exists in the repo (no `CLAUDE.md`, no `.github/copilot-instructions.md`, etc.). Requires user confirmation that the tool isn't used.
 3. **Opted-out layer folders** — `.agents/architecture/` or `.agents/intents/` if the `llms.txt` pointer line for that layer is still commented out (sentinel = layer never enabled).
 4. **Empty layer scaffolds** — `intents/open/` etc. containing only `.gitkeep`; architecture `.mmd` files left unchanged from their templates; nested `AGENTS.md` still containing only template placeholders.
@@ -111,9 +111,10 @@ Never auto-removes:
 - **Always shows a 3-line preview** of any file before deleting in Interactive mode.
 - **Always prints a one-line audit log entry** per deletion (Interactive and Sweep modes).
 - **Never deletes files outside `.agents/`** — except `llms.txt` updates when removing layer folders, and only the comment status of pointer lines.
-- **Never removes a hand-edited file silently** — if a file's mtime is after `verified-at` (in any frontmatter present) or its content differs from the upstream template by more than whitespace, it falls out of Sweep eligibility into Interactive reporting only.
+- **Never removes a hand-edited file silently** — detects local modifications via git history (`git log <verified-against>..HEAD` for templated files and `git diff --quiet HEAD` for any file). Files with uncommitted edits fall out of Sweep eligibility into Interactive reporting only. No mtime checks.
 - **Caps at 20 candidates per run** in Interactive mode — narrow scope to a category for the rest.
 - **Never reads secret files** — `.env`, `*.pem`, `*.key`, etc. See Hard Exclusions in implementation doc.
+- **Five parallel Haiku sub-agents** (one per category) feed candidates to main agent, which applies safety filters and enforces the never-delete list.
 
 ---
 
