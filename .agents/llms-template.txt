@@ -11,15 +11,15 @@ runtime: <!-- runtime (Node.js, Python, Cloudflare Workers, etc.) -->
 
 # --- Agent Instructions ---
 
-system-prompt-dir: ai/
-global-rules: ai/global_core.md
-project-context: ai/project_context.md
-shim-claude: ai/shims/claude.md
-shim-openai: ai/shims/openai.md
-shim-gemini: ai/shims/gemini.md
-shim-copilot: ai/shims/copilot.md
-shim-cursor: ai/shims/cursor.md
-shim-windsurf: ai/shims/windsurf.md
+system-prompt-dir: .agents/
+global-rules: .agents/global_core.md
+project-context: .agents/project_context.md
+shim-claude: .agents/shims/claude.md
+shim-openai: .agents/shims/openai.md
+shim-gemini: .agents/shims/gemini.md
+shim-copilot: .agents/shims/copilot.md
+shim-cursor: .agents/shims/cursor.md
+shim-windsurf: .agents/shims/windsurf.md
 assembly-order: shim + global_core + project_context
 
 # --- Key Source Locations ---
@@ -48,6 +48,31 @@ test: <!-- command to run tests, e.g. npm run test -->
 typecheck: <!-- command for type checking, e.g. npm run typecheck -->
 lint: <!-- command to lint, e.g. npm run lint -->
 deploy: <!-- command or process for deployment, e.g. npm run deploy -->
+
+# --- Optional Layers ---
+# Uncomment the keys for whichever layers the skill scaffolded. Drop the others.
+
+# Architecture — Mermaid topology + ADRs.
+# architecture-dir: .agents/architecture/
+# architecture-system: .agents/architecture/system.mmd
+# architecture-dataflow: .agents/architecture/dataflow.mmd
+# architecture-deployment: .agents/architecture/deployment.mmd
+# adr-dir: .agents/architecture/decisions/
+
+# Intents — spec-driven work units with binding scope.
+# intents-dir: .agents/intents/
+# intents-open: .agents/intents/open/
+# intents-in-flight: .agents/intents/in-flight/
+# intents-done: .agents/intents/done/
+
+# Nested AGENTS.md — per-directory context overrides.
+# nested-agents-md: enabled
+
+# --- MCP Tools (optional) ---
+# List MCP servers configured for this project. Agents prefer these over raw shell commands.
+# mcp-server-filesystem: src/ (read, write)
+# mcp-server-postgres: read, schema-inspect
+# mcp-server-github: read PRs/issues; no push
 
 # --- Do Not Modify ---
 

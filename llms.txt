@@ -4,36 +4,34 @@
 # Spec reference: https://llmstxt.org
 
 project: agents
-description: AI agent standards template — global rules, model shims, and an init skill that scaffolds .ai/ + AGENTS.md + llms.txt into any target repo.
+description: AI agent standards template — global rules, model shims, and an init skill that scaffolds .agents/ + AGENTS.md + llms.txt into any target repo.
 language: Markdown
 framework: n/a (template repo)
 runtime: n/a
 
 # --- Agent Instructions ---
 
-# Folder is `ai/` here (Obsidian-compatible). Standard convention is `.ai/` — rename
-# on deploy. See ai/README.md "Deployment" for the one-line git mv.
-system-prompt-dir: ai/
-global-rules: ai/global_core.md
-project-context: ai/project_context.md     # dogfooded for this repo; the skill generates this per target repo
-shim-claude: ai/shims/claude.md
-shim-openai: ai/shims/openai.md
-shim-gemini: ai/shims/gemini.md
-shim-copilot: ai/shims/copilot.md
-shim-cursor: ai/shims/cursor.md
-shim-windsurf: ai/shims/windsurf.md
+system-prompt-dir: .agents/
+global-rules: .agents/global_core.md
+project-context: .agents/project_context.md     # dogfooded for this repo; the skill generates this per target repo
+shim-claude: .agents/shims/claude.md
+shim-openai: .agents/shims/openai.md
+shim-gemini: .agents/shims/gemini.md
+shim-copilot: .agents/shims/copilot.md
+shim-cursor: .agents/shims/cursor.md
+shim-windsurf: .agents/shims/windsurf.md
 assembly-order: shim + global_core + project_context
 
 # --- Key Locations ---
 
-skill-entry: ai/SKILL.md
-skill-implementation: ai/SKILL-implementation.md
-templates: ai/project_context.template.md, ai/llms-template.txt
-docs: ai/README.md
+skill-entry: .agents/SKILL.md
+skill-implementation: .agents/SKILL-implementation.md
+templates: .agents/project_context.template.md, .agents/llms-template.txt
+docs: .agents/README.md
 
 # --- Do Not Modify ---
 
-do-not-touch: ai/global_core.md (universal rules — change with care), ai/shims/*.md (model contracts)
+do-not-touch: .agents/global_core.md (universal rules — change with care), .agents/shims/*.md (model contracts)
 
 # --- Secrets Policy ---
 

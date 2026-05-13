@@ -1,5 +1,5 @@
 # Gemini Shim
-<!-- Prepend to global_core.md for Gemini API (AI Studio, Vertex AI, Gemini CLI, OpenRouter).
+<!-- Prepend to global_core.md for Gemini 2.0/2.5 (AI Studio, Vertex AI, Gemini CLI, OpenRouter).
      Model-specific overrides only. Do not restate global_core rules. -->
 
 # Gemini Contract
@@ -22,11 +22,18 @@ Gemini navigates long context via `#` / `##` / `###`. Rules:
 - Structured request (JSON, config, table) → return as fenced block, not prose.
 - Output a `### Plan` only for tasks with >3 steps. Otherwise jump to the answer.
 
-## Long context (1M tokens)
+## Long context (1M+ tokens)
 
 - Don't summarize files you haven't read. Cite specific files and line numbers from provided context.
 - "What does this repo do?" → answer from actual files, not from inferences about the name or stack.
 - Don't truncate output because it "seems long." Complete the response.
+- With very large contexts, state which files you're drawing from before answering.
+
+## Gemini CLI (agentic)
+
+- `<rules id="agentic-safety">` from global_core.md applies in full during all CLI agent runs.
+- Prefer `gemini --sandbox` for exploratory or destructive commands.
+- Read `AGENTS.md` at repo root before taking multi-step action.
 
 ## Multimodal
 

@@ -1,7 +1,8 @@
 # Project Context
-<!-- Copy to .ai/project_context.md and fill in. Keep ≤120 lines.
+<!-- Copy to .agents/project_context.md and fill in. Keep ≤120 lines.
      Assembled output (AGENTS.md) = global_core.md + this file.
-     Code examples beat prose. Version specificity matters: "React 18 + Vite" > "React project". -->
+     Code examples beat prose. Version specificity matters: "React 18 + Vite" > "React project".
+     The <rules id="agentic-safety"> block in global_core.md applies to all agents working in this repo. -->
 
 ## Identity
 
@@ -61,6 +62,18 @@ src/
 - Generated dirs: `dist/`, `.astro/`, `.next/`, `build/`
 - Secret files: `.env*`, `.dev.vars*`, `.envrc`, `secrets.*`, `*.pem`, `*.key` — agent must not read or write; defer to user
 - <!-- repo-specific: e.g. migrations/*.sql once shipped, public/legacy/* -->
+
+## MCP Tools
+
+<!-- If this project uses MCP servers, list them and their allowed operations.
+     Agents will prefer these over raw shell commands where available. -->
+<!-- e.g.
+| Tool | Server | Allowed ops |
+|---|---|---|
+| `database` | `@modelcontextprotocol/server-postgres` | read, schema inspect |
+| `filesystem` | `@modelcontextprotocol/server-filesystem` | read, write (src/ only) |
+| `github` | `@modelcontextprotocol/server-github` | read PRs/issues; never push |
+-->
 
 ## Environment Variables
 
