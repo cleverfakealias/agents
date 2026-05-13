@@ -643,8 +643,7 @@ After all files are generated, summarize for the user:
   1. Review AGENTS.md (it's the contract for all agents in this repo)
   2. Review llms.txt (machine-readable index for AI agents — https://llmstxt.org)
   3. Commit both files: git add AGENTS.md llms.txt && git commit -m "Add agent standards (AGENTS.md, llms.txt)"
-  4. (Optional) Rename .agents/ to .agents/ before pushing to GitHub for standards compliance
-  5. (Optional) Set up CI to regenerate AGENTS.md and llms.txt on push if you edit .agents/ files
+  4. (Optional) Set up CI to regenerate AGENTS.md and llms.txt on push if you edit .agents/ files
 ```
 
 ---
@@ -664,4 +663,33 @@ Would you like to:
 ```
 
 ### Ambiguous / Multi-Repo Setup
-If
+
+If auto-explore detects multi-package signals — `pnpm-workspace.yaml`, `lerna.json`, `nx.json`, `turbo.json`, multiple `package.json` / `pyproject.toml` files at depth ≥2, or a `packages/` / `apps/` directory with sub-projects — pause and ask the user:
+
+```
+This looks like a monorepo. How should I scaffold context?
+  1. Single root context — one project_context.md describes the workspace as a unit; nested AGENTS.md per package picks up local rules.
+  2. Per-package contexts — generate a project_context.md inside each detected package; assemble a sibling AGENTS.md for each.
+  3. Root only for now — skip per-package; I'll re-run for individual packages later.
+```
+
+Default recommendation: option 1 for most monorepos. Option 2 is right when packages have meaningfully different stacks (e.g. a Python service + a TypeScript SDK in one repo).
+
+If the user picks option 2, run Path A (auto-explore) once per detected package, writing each package's files into its own subdirectory. Reuse the same `global_core.md` and `shims/` — those stay at the repo root.
+
+### Existing `.agents/project_context.md` Found
+
+If `.agents/project_context.md` already exists when the skill runs, do not silently overwrite. Ask:
+
+```
+A project_context.md already exists. What should I do?
+  1. Merge — keep your hand-edited sections; refresh only the auto-detected fields (Stack, Commands, Project Structure, Boundaries).
+  2. Replace — overwrite with a freshly generated file (your hand edits will be lost; recommended only after a major stack change).
+  3. Skip — leave project_context.md as-is and just regenerate AGENTS.md from current contents.
+```
+
+For option 1, parse the existing file's section headings; for each section the user has edited (content differs from the template comment placeholders), preserve it verbatim and only refresh sections that still contain `<!-- -->` placeholders or match auto-detected values.
+
+### User Aborts Mid-Skill
+
+If the user cancels or declines a required question, do not write partial files. Report what was gathered, point them to the template files they can fill in by hand, and exit cleanly. Never leave a half-written `project_context.md` or `AGENTS.md` on disk.
