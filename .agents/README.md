@@ -25,8 +25,11 @@ Source of truth for AI agent behavior across this repo. Automatically scaffolds 
     ├── blueprint/
     │   ├── SKILL.md            ← skill: plan features → decompose into intents
     │   └── SKILL-implementation.md
-    └── scaffold-context/
-        ├── SKILL.md            ← skill: scaffold + audit nested AGENTS.md
+    ├── scaffold-context/
+    │   ├── SKILL.md            ← skill: scaffold + audit nested AGENTS.md
+    │   └── SKILL-implementation.md
+    └── tidy-scaffold/
+        ├── SKILL.md            ← skill: remove unused .agents/ scaffolding leftovers
         └── SKILL-implementation.md
 ```
 
@@ -169,6 +172,18 @@ Three modes:
 Every generated file is stamped with YAML frontmatter (`verified-against`, `verified-at`, `generated-by`) — that's the freshness signal Audit mode reads.
 
 Invoke it by reading `.agents/skills/scaffold-context/SKILL.md` in a Claude session.
+
+#### skills/tidy-scaffold/
+**Removes unused `.agents/` scaffolding leftovers.** After init, scaffold-context, and blueprint have run, the `.agents/` folder accumulates artifacts that may no longer be needed: templates whose generated counterpart exists, shims for tools the team doesn't use, opted-out layer folders, blank nested `AGENTS.md` placeholders, and orphan skill folders.
+
+Three modes:
+- **Scan** — read-only report grouping candidates by category and risk. Never writes or deletes.
+- **Interactive** — same detection, but pauses on each candidate with Remove / Keep / Explain. Caps at 20 per run.
+- **Sweep** — auto-removes unambiguously-safe items (consumed templates, byte-identical layer scaffolds) after one upfront confirmation about unused tools / opted-out layers; reports the rest.
+
+Five removal categories: consumed templates, unused shims, opted-out layer folders, empty layer scaffolds, orphan skill folders. Built-in safety: never deletes `global_core.md`, `project_context.md`, root `AGENTS.md`, secrets, or anything with uncommitted local edits (without explicit confirmation). Updates `llms.txt` to comment out pointer lines if a layer folder is removed.
+
+Invoke it by reading `.agents/skills/tidy-scaffold/SKILL.md` in a Claude session.
 
 ### shims/
 Model-specific overrides (≤50 lines each). Only include if the tool reads its own file or you need targeted changes. Never duplicate `global_core.md`.

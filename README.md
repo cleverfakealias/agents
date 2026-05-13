@@ -8,6 +8,7 @@ A drop-in template for adding AI-agent standards to any repo. Hands every agent 
 - **`.agents/shims/`** — six model-specific override files (Claude, OpenAI, Gemini, Copilot, Cursor, Windsurf). Each ≤50 lines, no rule duplication.
 - **`.agents/SKILL.md`** — a Claude skill that interactively generates the per-repo files for you. Two paths: auto-explore your codebase or answer 7 guided questions.
 - **`.agents/skills/scaffold-context/`** — a Claude skill that walks your codebase, ranks directories, and writes meaningful nested `AGENTS.md` files (or audits existing ones for drift). Three modes: auto, guided, audit.
+- **`.agents/skills/tidy-scaffold/`** — a Claude skill that removes unused `.agents/` scaffolding leftovers: consumed templates, shims for tools the team doesn't use, opted-out layer folders, and blank placeholders. Three modes: scan (report-only), interactive, sweep.
 - **`AGENTS.md`** (this repo's, at the root) — assembled prompt = `global_core.md` + `project_context.md`. The contract every modern agent reads.
 - **`llms.txt`** (this repo's, at the root) — machine-readable index per the [llms.txt spec](https://llmstxt.org).
 
@@ -56,6 +57,7 @@ llms.txt                      ← machine-readable index
   skills/
     blueprint/                ← feature planning + intent management skill
     scaffold-context/         ← nested AGENTS.md scaffolding + freshness audit
+    tidy-scaffold/            ← remove unused .agents/ scaffolding leftovers
 ```
 
 ## License
