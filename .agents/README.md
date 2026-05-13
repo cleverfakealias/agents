@@ -28,8 +28,14 @@ Source of truth for AI agent behavior across this repo. Automatically scaffolds 
     ├── scaffold-context/
     │   ├── SKILL.md            ← skill: scaffold + audit nested AGENTS.md
     │   └── SKILL-implementation.md
-    └── tidy-scaffold/
-        ├── SKILL.md            ← skill: remove unused .agents/ scaffolding leftovers
+    ├── tidy-scaffold/
+    │   ├── SKILL.md            ← skill: remove unused .agents/ scaffolding leftovers
+    │   └── SKILL-implementation.md
+    ├── scaffold-architecture/
+    │   ├── SKILL.md            ← skill: populate / audit architecture mermaid diagrams
+    │   └── SKILL-implementation.md
+    └── scaffold-adr/
+        ├── SKILL.md            ← skill: create / supersede / audit ADRs
         └── SKILL-implementation.md
 ```
 
@@ -184,6 +190,30 @@ Three modes:
 Five removal categories: consumed templates, unused shims, opted-out layer folders, empty layer scaffolds, orphan skill folders. Built-in safety: never deletes `global_core.md`, `project_context.md`, root `AGENTS.md`, secrets, or anything with uncommitted local edits (without explicit confirmation). Updates `llms.txt` to comment out pointer lines if a layer folder is removed.
 
 Invoke it by reading `.agents/skills/tidy-scaffold/SKILL.md` in a Claude session.
+
+#### skills/scaffold-architecture/
+**Populates the architecture Mermaid diagrams from codebase signals or audits them for drift.** Owns `.agents/architecture/{system,dataflow,deployment}.mmd`. Refuses to run if the architecture layer wasn't opted in at init.
+
+Three modes:
+- **Auto** — Tier-1 detection from IaC (`terraform/`, `wrangler.toml`, `docker-compose.yml`, Kubernetes manifests), Tier-2 from manifests (`package.json` etc.), Tier-3 from code references (env var names, route handlers). Nodes tagged `(high)` / `(medium)` / `(low)` confidence; low-confidence get `<!-- TODO: confirm -->` markers — the skill never invents components.
+- **Guided** — layered interview: system first → confirm → dataflow → confirm → deployment. Each diagram is a refinement of the prior.
+- **Audit** — compares existing diagrams to current codebase. Flags uncovered surfaces (new top-level deps without a node, env vars implying missing externals, IaC additions not represented) and classifies each diagram Fresh / Lightly drifted / Stale.
+
+Every generated file is stamped with YAML frontmatter (`verified-against`, `verified-at`, `generated-by`). 30-node cap per diagram (matches the architecture layer's documented invariant).
+
+Invoke it by reading `.agents/skills/scaffold-architecture/SKILL.md` in a Claude session.
+
+#### skills/scaffold-adr/
+**Manages Architecture Decision Records: create, supersede, audit.** Owns `.agents/architecture/decisions/`. Refuses to run if the architecture layer wasn't opted in.
+
+Three modes:
+- **New** — guided creation walking through Title → Context → Decision → Alternatives → Consequences (positive/negative/follow-up) → Revisit-when. Auto-numbers with `max(NNNN) + 1` (numbers are append-only, never reused). Writes `NNNN-<kebab>.md` with Status `Proposed`.
+- **Supersede** — creates a new ADR that replaces an existing accepted one; performs the **only** allowed mutation of a prior ADR: a single-line Status update from `Accepted` to `Superseded by [ADR-NNNN](./...)`. Nothing else about the prior ADR changes.
+- **Audit** — read-only report. Flags missing required sections, invalid Status values, duplicate numbers, dangling supersede links, stale Proposed ADRs (>90 days untouched), and old Accepted ADRs (>12 months) without a Revisit-when trigger.
+
+Built-in immutability contract: accepted ADRs are append-only (the only exception is the Supersede mode's Status-line update). Never edits, never deletes, never reuses numbers, never invents content.
+
+Invoke it by reading `.agents/skills/scaffold-adr/SKILL.md` in a Claude session.
 
 ### shims/
 Model-specific overrides (≤50 lines each). Only include if the tool reads its own file or you need targeted changes. Never duplicate `global_core.md`.

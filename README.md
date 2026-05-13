@@ -9,6 +9,8 @@ A drop-in template for adding AI-agent standards to any repo. Hands every agent 
 - **`.agents/SKILL.md`** — a Claude skill that interactively generates the per-repo files for you. Two paths: auto-explore your codebase or answer 7 guided questions.
 - **`.agents/skills/scaffold-context/`** — a Claude skill that walks your codebase, ranks directories, and writes meaningful nested `AGENTS.md` files (or audits existing ones for drift). Three modes: auto, guided, audit.
 - **`.agents/skills/tidy-scaffold/`** — a Claude skill that removes unused `.agents/` scaffolding leftovers: consumed templates, shims for tools the team doesn't use, opted-out layer folders, and blank placeholders. Three modes: scan (report-only), interactive, sweep.
+- **`.agents/skills/scaffold-architecture/`** — a Claude skill that populates the architecture Mermaid diagrams (`system.mmd`, `dataflow.mmd`, `deployment.mmd`) from codebase signals or audits them for drift. Three modes: auto, guided, audit.
+- **`.agents/skills/scaffold-adr/`** — a Claude skill that creates new Architecture Decision Records with required sections and auto-numbering, supersedes existing ADRs without violating immutability, and audits the `decisions/` folder. Three modes: new, supersede, audit.
 - **`AGENTS.md`** (this repo's, at the root) — assembled prompt = `global_core.md` + `project_context.md`. The contract every modern agent reads.
 - **`llms.txt`** (this repo's, at the root) — machine-readable index per the [llms.txt spec](https://llmstxt.org).
 
@@ -58,6 +60,8 @@ llms.txt                      ← machine-readable index
     blueprint/                ← feature planning + intent management skill
     scaffold-context/         ← nested AGENTS.md scaffolding + freshness audit
     tidy-scaffold/            ← remove unused .agents/ scaffolding leftovers
+    scaffold-architecture/    ← populate or audit architecture Mermaid diagrams
+    scaffold-adr/             ← create / supersede / audit Architecture Decision Records
 ```
 
 ## License
