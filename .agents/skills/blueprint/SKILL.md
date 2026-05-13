@@ -7,6 +7,12 @@ description: "Plan a new feature, service, or system using intents. Guides you f
 
 Turn an idea into a set of scoped, PR-sized intent files ready to hand off to any AI agent. Two modes: **Plan** (new feature) and **Sync** (catch-up after intents complete).
 
+Intent files carry full YAML frontmatter (`intent-id`, `title`, `owner`, `status`, `created`, `updated`, `verified-against`, `verified-at`, `generated-by: blueprint`) — the same freshness pattern used by other skills (scaffold-context, architecture). This enables drift detection in Sync mode.
+
+Conflict detection (Mode 1) and per-intent staleness checks (Mode 2) are delegated to Haiku sub-agents rather than performed inline. The main agent (Sonnet) reads their structured output and surfaces issues via `AskUserQuestion`.
+
+`AGENTS.md` regeneration is never done inline. Blueprint always delegates to init's "Procedure: Assemble AGENTS.md" in `.agents/SKILL-implementation.md`. If that section is missing, blueprint aborts and reports the gap.
+
 > **BEFORE EXECUTING:** Read `.agents/skills/blueprint/SKILL-implementation.md` for the full step-by-step logic — orientation checks, AskUserQuestion payloads, intent templates, assembly rules, self-management steps, and error handling. This page is orientation only; the implementation doc is the contract.
 
 ---
@@ -72,7 +78,8 @@ Runs when you already have in-flight or recently-shipped intents and the repo ne
 
 ### Always (Sync mode)
 - Intent files moved between `open/` → `in-flight/` → `done/`
-- `AGENTS.md` regenerated if anything changed
+- Intent frontmatter (`status`, `updated`, `verified-against`, `verified-at`) refreshed on each transition
+- `AGENTS.md` regenerated if stale (delegated to init's assembly procedure, not assembled inline)
 
 ---
 
@@ -80,11 +87,12 @@ Runs when you already have in-flight or recently-shipped intents and the repo ne
 
 The blueprint skill keeps the repo honest:
 
-- **Never creates intents that conflict with existing open/in-flight scope** — it reads what's already there before proposing new work.
+- **Never creates intents that conflict with existing open/in-flight scope** — conflict detection is delegated to a Haiku sub-agent; results are surfaced via `AskUserQuestion` before any files are created.
 - **Reads `global_core.md` and `project_context.md` before every session** — its proposals are grounded in your actual standards.
 - **Only touches files in its mandate** — `.agents/intents/`, `.agents/architecture/decisions/`, `project_context.md`, `AGENTS.md`, `llms.txt`. Nothing else.
 - **Never moves work to `done/`** without your explicit confirmation.
-- **Flags when intents in `in-flight/` are getting stale** (>14 days without a linked PR) and asks if they should be abandoned or split.
+- **Flags when intents in `in-flight/` are getting stale** — per-intent staleness is delegated to a Haiku sub-agent (checks scope-file git activity and the `updated` field). Flagged intents are presented with options: defer / cancel / update-status / split-intent.
+- **Never reassembles `AGENTS.md` inline** — always delegates to init's "Procedure: Assemble AGENTS.md". If that procedure is missing, blueprint aborts rather than guessing the format.
 
 ---
 

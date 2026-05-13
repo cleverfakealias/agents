@@ -47,15 +47,23 @@ Source of truth for AI agent behavior across this repo. Automatically scaffolds 
 
 1. Copy this `.agents/` folder into your target repo:
    ```bash
+   # Linux / macOS:
    cp -r .agents/ /path/to/your-repo/.agents
+
+   # Windows (PowerShell):
+   Copy-Item -Recurse .agents C:\path\to\your-repo\.agents
    ```
-2. Read `.agents/SKILL.md` in a Claude session
-3. Choose: **auto-explore** (Claude reads your codebase) or **manual questions** (you answer 7 prompts)
+
+2. Read `.agents/SKILL.md` in a Claude session.
+
+3. Choose: **auto-explore** (Claude reads your codebase) or **manual questions** (you answer 7 prompts).
+
 4. Claude generates:
    - `.agents/project_context.md` — your project specifics
    - `llms.txt` — machine-readable index (https://llmstxt.org)
    - `AGENTS.md` — assembled prompt for all agents (global_core + project_context)
    - Optional: `CLAUDE.md`, `.github/copilot-instructions.md`, `.cursor/rules/agents.mdc`
+
 5. **Commit** — `AGENTS.md` is the human+agent contract. Check it in.
 
 That's it.
@@ -331,5 +339,26 @@ Edit freely. This file is repo-specific. Keep it ≤120 lines.
 
 ## Troubleshooting
 
-**Q: I invoked the skill but it's asking me project type when I expected auto-explore.**
-A: Auto-explore only works if it finds config fi
+**Q: Auto-explore is asking project type when I expected detection**
+A: Auto-explore only works if it finds a recognizable config file (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `*.csproj`, `mix.exs`, `deno.json`, `bun.lock`, `Package.swift`). If none are found, it falls back to the 7-question guided path. Either add a manifest file and re-invoke, or stay in guided.
+
+**Q: I'm on Windows and the bash quickstart fails**
+A: Use the PowerShell variant shown in the quickstart, or copy `.agents/` manually. The skill itself uses tool-abstracted file ops (Glob/Read/Write) and works on any OS.
+
+**Q: AGENTS.md already exists when I re-run init**
+A: The skill detects collisions and presents Merge / Replace / Skip. Merge preserves your edits where it can; Replace overwrites; Skip keeps the existing file and only regenerates llms.txt and shims.
+
+**Q: The five model shims I don't use are still sitting in `.agents/shims/`**
+A: Run the `tidy-scaffold` skill (`.agents/skills/tidy-scaffold/SKILL.md`). Its Scan mode lists candidates without writing; Sweep mode removes unambiguously-safe items (consumed templates, unused shims) after one confirmation.
+
+**Q: My non-JS stack got JS-specific rules in AGENTS.md**
+A: `global_core.md` ships universal rules plus a JS/TS-conditional block. Init only appends the JS/TS block when it detects a Node/TS stack. If your stack was misdetected, edit `project_context.md`, re-run assembly (see Procedure: Assemble AGENTS.md in `.agents/SKILL-implementation.md`), or delete the JS/TS rule block by hand.
+
+**Q: I want to update project_context.md after init**
+A: Edit it freely. Then re-run the skill in "regenerate only" mode (it skips detection and reassembles `AGENTS.md` from the updated `project_context.md`), or run the assembly command from `.agents/README.md` § Assembly Logic.
+
+**Q: Nested AGENTS.md files are out of date**
+A: Run `scaffold-context` in Audit mode. It compares each nested file's `verified-against` SHA to HEAD and produces a freshness report without writing.
+
+**Q: The skill keeps asking me about Windsurf when I don't use it**
+A: Answer "neither" when prompted. Init only writes `.windsurfrules` / `global_rules.md` for explicitly selected outputs.

@@ -10,6 +10,57 @@ Never read or pass to a subagent: `.env`, `.env.*`, `.envrc`, `.dev.vars*`, `sec
 
 ---
 
+## Phase 0.5 — Sub-Agent Dispatch Policy
+
+Two sub-agents are dispatched at specific points in the workflow. Both run as Haiku to minimize cost.
+
+### Conflict-Detection Sub-Agent (Mode 1, Phase 1A)
+
+Dispatched in Mode 1 Phase 1A, replacing the "build a mental list" instruction.
+
+- **Model:** Haiku
+- **Input:** `{new_intent_draft, existing_intents_list, project_context_md}`
+  - `existing_intents_list`: the filename, title, and `## Scope` text of every file in `.agents/intents/open/` and `.agents/intents/in-flight/`.
+  - `new_intent_draft`: the proposed title, scope, and file list from Phase 1E.
+- **Behavior:** For each existing intent, check overlap with the draft on: file paths in scope, named systems or components, named ADRs referenced.
+- **Output:** A structured overlap table — one row per overlapping existing intent:
+
+  ```
+  existing_intent_id | existing_intent_title | shared_files | shared_concepts | severity
+  ```
+
+  `severity` values: `none` | `low` | `medium` | `high`. Omit rows where severity is `none`.
+
+The main agent (Sonnet) reads the table. If any row has severity `medium` or `high`, surface the conflict to the user via `AskUserQuestion` before creating intent files (see 1E conflict check).
+
+### Per-Intent Staleness Sub-Agent (Mode 2, Phase 2D)
+
+Dispatched once per in-flight intent in Mode 2 Phase 2D, replacing manual date arithmetic.
+
+- **Model:** Haiku
+- **Input:** `{intent_path, current_sha}`
+  - `intent_path`: absolute path to the intent file.
+  - `current_sha`: output of `git rev-parse HEAD`.
+- **Behavior:**
+  1. Read the intent's YAML frontmatter to extract `verified-against` and `updated`.
+  2. Run `git log <verified-against>..HEAD -- <files implied by ## Scope>` to detect activity on scope files since last verification.
+  3. Compare `updated` date against the staleness window: 14 days for in-flight, 30 days for open.
+- **Output:**
+
+  ```
+  {
+    "intent_path": "...",
+    "last_activity_sha": "...",
+    "last_activity_date": "YYYY-MM-DD",
+    "staleness_flag": true | false,
+    "scope_files_drifted_count": N
+  }
+  ```
+
+The main agent collects all results and presents flagged intents to the user via `AskUserQuestion` with options: defer / cancel / update-status / split-intent.
+
+---
+
 ## Entry Point
 
 When the skill is invoked, immediately run **Phase 0** (orientation). Do not ask what mode the user wants until after you have read the current repo state — the orientation output informs the choice.
@@ -80,7 +131,7 @@ Route to **Mode 1: Plan**, **Mode 2: Sync**, or **Mode 3: Status** below.
 
 ### 1A. Conflict Check
 
-Before asking anything: scan titles and `## Scope` sections of all open and in-flight intents. Build a mental list of "what's already committed." You'll use this in Phase 1D to flag any overlap in the proposed decomposition.
+Before asking anything: collect all open and in-flight intent files (titles + `## Scope` sections). At Phase 1E (after the decomposition draft is ready), dispatch the **Conflict-Detection Sub-Agent** (see Phase 0.5) with the draft and the existing intents list. The sub-agent returns an overlap table; use it to surface conflicts via `AskUserQuestion` if severity is `medium` or `high`. Do not attempt to hold a mental list — delegate to the sub-agent.
 
 ### 1B. Discovery — What Are We Building?
 
@@ -192,9 +243,15 @@ For each confirmed work unit, create `.agents/intents/open/YYYY-MM-DD-<slug>.md`
 
 ```markdown
 ---
-id: YYYY-MM-DD-<slug>
+intent-id: YYYY-MM-DD-<slug>
+title: <human-readable title matching the H1 below>
 owner: <from project_context.md Owner field>
+status: open    # open | in-flight | done | cancelled
 created: YYYY-MM-DD
+updated: YYYY-MM-DD
+verified-against: <git HEAD SHA at creation>
+verified-at: <ISO timestamp at creation>
+generated-by: blueprint
 ---
 
 # <Title — imperative, what the system will do after this lands>
@@ -243,6 +300,22 @@ What is **deliberately not** being changed. This section is binding for any agen
 
 Fill every section using what was gathered in 1B–1E. Do not leave `<!-- TODO -->` markers — ask the user if anything is genuinely unknown rather than leaving a placeholder.
 
+**Frontmatter stamping rules:**
+- `intent-id`: `YYYY-MM-DD-<slug>` matching the filename.
+- `title`: the imperative H1 title of the intent.
+- `owner`: from `project_context.md` Owner field.
+- `status`: `open` on creation.
+- `created` and `updated`: today's date (ISO 8601).
+- `verified-against`: output of `git rev-parse HEAD` at creation time. If git is unavailable, write `unknown`.
+- `verified-at`: ISO 8601 timestamp at creation.
+- `generated-by`: `blueprint` (literal).
+
+**Transition rules (Mode 2 — Sync):** When moving an intent between folders (`open/ → in-flight/` or `in-flight/ → done/`), update these frontmatter fields in the file before moving it:
+- `status`: set to the new state (`in-flight` or `done`).
+- `updated`: today's date.
+- `verified-against`: current `git rev-parse HEAD`.
+- `verified-at`: current ISO 8601 timestamp.
+
 **After creating files:** list what was created:
 
 ```
@@ -288,15 +361,15 @@ Options:
    - Add new directories to `## Project Structure` if they'll be net-new
    - Do NOT edit sections that didn't change
 
-2. Regenerate `AGENTS.md`:
-   ```
-   [contents of .agents/global_core.md]
+2. Regenerate `AGENTS.md` by delegating to init's assembly procedure:
 
-   ---
+   After any update to `.agents/project_context.md`, blueprint MUST NOT reassemble `AGENTS.md` itself. Instead:
 
-   [contents of .agents/project_context.md]
-   ```
-   Write to: `AGENTS.md` (repo root)
+   1. Locate `.agents/SKILL-implementation.md` → section "Procedure: Assemble AGENTS.md".
+   2. Follow that procedure verbatim. Do NOT reimplement the concatenation, separator format, or frontmatter stamping logic here.
+   3. If the procedure section is missing from `.agents/SKILL-implementation.md`, abort and report: "init's assembly procedure is missing; cannot regenerate AGENTS.md safely."
+
+   This keeps `AGENTS.md` assembly single-source. If init's format changes (separator, frontmatter, conditional JS/TS block), blueprint inherits the change automatically.
 
 3. Regenerate `llms.txt` only if the new feature adds directories that belong in the index (new routes, new API dir, etc.). Otherwise skip — `llms.txt` is structure, not intent.
 
@@ -369,33 +442,30 @@ Options: [one per open intent — show slug + title]
 
 ### 2D. Check for Stale In-Flight
 
-For any in-flight intent with `created:` > 14 days ago (computed in Phase 0):
+For each in-flight intent, dispatch the **Per-Intent Staleness Sub-Agent** (see Phase 0.5) with `{intent_path, current_sha}`. Collect all results, then present flagged intents (where `staleness_flag: true`) to the user:
 
 ```
-⚠️  These intents have been in-flight for >14 days with no linked PR:
-    • <slug> (created YYYY-MM-DD)
+These intents are stale (>14 days in-flight with no recent scope-file activity):
+  • <slug> (last activity: YYYY-MM-DD, scope files drifted: N)
 
-    Options for each:
-      1. Leave as in-flight
-      2. Move to abandoned/ (explain why in the file before moving)
-      3. Split into smaller intents
+Options for each:
+  1. Leave as in-flight
+  2. Move to abandoned/ (explain why in the file before moving)
+  3. Split into smaller intents
+  4. Update status and re-verify (refreshes frontmatter fields)
 ```
 
-Process per intent. If "move to abandoned": read the intent file, ask for a one-line abandonment reason, append it to the file under a `## Abandoned` heading, then move the file.
+Process per intent. If "move to abandoned": read the intent file, ask for a one-line abandonment reason, append it to the file under a `## Abandoned` heading, then move the file. If "update status and re-verify": refresh `updated`, `verified-against`, and `verified-at` in the frontmatter before continuing.
 
 ### 2E. Refresh AGENTS.md if Stale
 
-Read `AGENTS.md`. Compare its `project_context.md` section against the current `.agents/project_context.md`. If they differ (even whitespace), regenerate:
+Read `AGENTS.md`. Compare its `project_context.md` section against the current `.agents/project_context.md`. If they differ (even whitespace), regenerate by delegating to init's assembly procedure:
 
-```
-[contents of .agents/global_core.md]
+1. Locate `.agents/SKILL-implementation.md` → section "Procedure: Assemble AGENTS.md".
+2. Follow that procedure verbatim.
+3. If the procedure section is missing, abort and report: "init's assembly procedure is missing; cannot regenerate AGENTS.md safely."
 
----
-
-[contents of .agents/project_context.md]
-```
-
-Write to: `AGENTS.md` (repo root). Tell the user it was regenerated.
+Tell the user when AGENTS.md was regenerated. Blueprint does not reimplement the concatenation, separator format, or frontmatter stamping logic inline.
 
 ### 2F. Sync Summary
 
@@ -496,15 +566,7 @@ Surface explicitly (see 1E). Never silently create an intent whose scope overlap
 
 ## Template Reference — Assembled AGENTS.md
 
-Always assembled as:
-
-```
-[full contents of .agents/global_core.md]
-
----
-
-[full contents of .agents/project_context.md]
-```
+Blueprint does not define the assembly format here. All AGENTS.md generation is delegated to the "Procedure: Assemble AGENTS.md" section of `.agents/SKILL-implementation.md` (owned by init). Follow that procedure verbatim whenever AGENTS.md must be written.
 
 No shims are prepended here — shims are for model-specific files (CLAUDE.md, copilot-instructions.md). The blueprint skill only touches `AGENTS.md`, not model-specific files.
 

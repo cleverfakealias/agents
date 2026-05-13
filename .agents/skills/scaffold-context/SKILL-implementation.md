@@ -10,6 +10,52 @@ Never read or pass to a subagent: `.env`, `.env.*`, `.envrc`, `.dev.vars*`, `sec
 
 ---
 
+## Sub-Agent Decomposition (Phase 0.5)
+
+Per-candidate-directory synthesis (Phase 2A) is embarrassingly parallel. After candidate scoring and ranking (Phase 1C–1D), the main agent (Sonnet) dispatches one sub-agent per candidate in a single parallel batch.
+
+### Per-directory synthesis sub-agent (Haiku)
+
+**When dispatched:** Auto mode with >3 candidates. In Guided mode, sub-agent dispatch is optional — the main agent may handle synthesis inline since the user reviews each draft anyway.
+
+**Input per sub-agent:**
+
+```json
+{
+  "dir_path": "<candidate directory path>",
+  "hard_exclusions": ["<list from Hard Exclusions above>"],
+  "current_sha": "<current-sha from Phase 0B>",
+  "scoring_rationale": "<brief: which rubric signals fired for this dir>",
+  "index_file_path": "<path to index file if detected, else null>"
+}
+```
+
+**Sub-agent behavior:**
+
+1. Read `<dir_path>/README.md` (if present).
+2. Read the index file at `index_file_path` (if provided), first ~50 lines.
+3. Read the largest non-test source file in the directory (one file, by line count).
+4. Synthesize a draft `AGENTS.md` for the directory: Purpose, Key invariants, Local boundaries, Entry points, Local conventions (deltas only), Linked context placeholders. Match the nested-AGENTS.md template format exactly.
+5. Return the drafted markdown as text only — no file writes.
+
+**Main agent (Sonnet) responsibilities:**
+
+1. Run the scoring rubric (Phase 1C), rank dirs, cap at 12.
+2. Dispatch one sub-agent per candidate in a single parallel batch (up to 12 Agent calls in one message).
+3. Collect all draft outputs.
+4. Add YAML frontmatter (`verified-against`, `verified-at`, `generated-by: scaffold-context (auto)`) to each draft.
+5. Write files.
+6. In Guided mode: present each draft via `AskUserQuestion` before writing (may use inline synthesis instead of sub-agents).
+
+**Mandatory vs optional:**
+
+- Auto mode, >3 candidates: sub-agent dispatch is **mandatory** (preserves main-agent context window).
+- Auto mode, ≤3 candidates: sub-agent dispatch is optional; main agent may synthesize inline.
+- Guided mode: sub-agent dispatch is optional; main agent may synthesize inline per-candidate.
+- Audit mode: no sub-agents dispatched (Audit never synthesizes new content).
+
+---
+
 ## Entry Point
 
 When the skill is invoked, run **Phase 0** immediately. Do not ask for a mode until orientation is complete — the orientation output informs the choice.
@@ -95,9 +141,26 @@ Scan directories up to depth 4 (configurable — default 4). Exclude immediately
 For each remaining dir, collect:
 - File count (source files only — exclude lockfiles, binaries, images)
 - Directory name
-- Whether it contains an `index.ts`, `index.js`, `__init__.py`, or `mod.rs`
+- Whether it contains a language-appropriate index file (see index-file heuristic below)
 - Whether it contains a `README.md`
 - Whether it contains an `OWNERS` or `CODEOWNERS` file
+
+**Index-file heuristic (per-language).** Detect the directory's "entry point" or "documented surface" by checking for the first match in priority order:
+
+- JavaScript / TypeScript: `index.ts`, `index.tsx`, `index.js`, `index.mjs`
+- Python: `__init__.py`, `__main__.py`
+- Rust: `mod.rs`, `lib.rs`, `main.rs`
+- Go: `doc.go` if present; otherwise the file matching `<dirname>.go`; otherwise the first non-test `.go` file in the directory
+- Java: `package-info.java`; otherwise the first `public class` file matching the directory name
+- Kotlin: `<Dirname>.kt` matching the package name
+- C# / .NET: any `*.csproj` in the dir (the project file itself acts as the index)
+- Ruby: any `*.gemspec` in the dir; otherwise `lib/<dirname>.rb`
+- Elixir: any `mix.exs`; otherwise `lib/<dirname>.ex`
+- Swift: `Package.swift`; otherwise files in `Sources/<DirName>/`
+
+Priority when multiple candidates match: explicit documentation file (`doc.go`, `package-info.java`) > package-marker file (`*.gemspec`, `*.csproj`, `mod.rs`) > main entrypoint (`main.rs`, `__main__.py`) > best-effort index.
+
+Read the chosen index file's first ~50 lines for the directory description. If no index file is found, fall back to the directory's `README.md`.
 
 ### 1C. Score Each Directory
 
@@ -106,13 +169,41 @@ Apply this rubric cumulatively. Higher score = stronger candidate.
 | Signal | Points |
 |---|---|
 | Dir contains ≥ 5 source files | +2 |
-| Dir name matches a known pattern: `routes/`, `api/`, `pages/api/`, `auth/`, `payments/`, `billing/`, `migrations/`, `middleware/` | +2 |
-| Dir contains a public re-export surface: `index.ts`, `index.js`, `__init__.py`, or `mod.rs` | +2 |
+| Dir name matches a high-signal pattern (see rubric groups below) | +2 |
+| Dir name matches a medium-signal pattern (see rubric groups below) | +1 |
+| Dir contains a public re-export surface (any language index file from the heuristic above) | +2 |
 | Dir has its own `README.md` | +1 |
 | Dir has its own `OWNERS` or `CODEOWNERS` reference | +1 |
 | Git churn in last 90 days exceeds repo median for non-leaf dirs (skip signal if git history unavailable) | +1 |
 | Dir is purely test-focused: `__tests__/`, `tests/`, `*.test.*`, `*.spec.*` files only | −3 |
 | Dir already has an `AGENTS.md` | −5 (effectively excluded) |
+
+**Scoring rubric — pattern groups (award +2 for API/web, domain, persistence, or security; +1 for config or bridges):**
+
+API / web surface (+2):
+- Node/TS: `routes/`, `api/`, `pages/api/`, `app/api/`
+- Java/Kotlin: `controller/`, `controllers/`, `resource/`, `resources/`, `endpoint/`
+- Go: `handler/`, `handlers/`, `api/`, `transport/`
+- Rust: any dir under `src/bin/`, `examples/`
+- .NET: `Controllers/`, `Endpoints/`
+- Ruby: `controllers/`, `app/controllers/`
+
+Domain / business logic (+2):
+- Java/Kotlin: `service/`, `services/`, `domain/`, `usecase/`, `usecases/`
+- Go: `internal/`, `pkg/`, `domain/`, `service/`
+- DDD-flavored (any stack): `adapter/`, `adapters/`, `application/`, `infrastructure/`, `infra/`
+
+Persistence (+2):
+- Anywhere: `migrations/`, `models/`, `entities/`, `entity/`, `schema/`, `repository/`, `repositories/`, `dao/`, `dto/`
+
+Security-sensitive (+2):
+- Anywhere: `auth/`, `auth*/`, `payments/`, `billing/`, `subscription/`, `credentials/`, `secrets/`, `middleware/`
+
+Configuration / environment (+1):
+- Anywhere: `config/`, `configs/`, `environments/`, `env/`
+
+Bridges to external systems (+1):
+- Anywhere: `clients/`, `gateways/`, `integrations/`, `connectors/`, `webhooks/`
 
 **Threshold:** Score ≥ 4 → candidate.
 
@@ -163,7 +254,7 @@ For each candidate directory (in descending score order):
 
 Read up to 3 files per directory. Selection order:
 1. `README.md` (if present) — always read this first
-2. The public re-export surface: `index.ts`, `index.js`, `__init__.py`, or `mod.rs` (if present)
+2. The language-appropriate index file detected by the index-file heuristic (see Phase 1B) — if present
 3. The remaining file(s) with the most lines (proxy for "most substance") — read the top 1–2 by line count
 
 Do not read: test fixtures, snapshot files, generated files (`.d.ts`, `.js.map`, `*.generated.*`), or any file on the Hard Exclusions list.
@@ -313,8 +404,19 @@ For each nested AGENTS.md:
 For every nested AGENTS.md (including hand-written ones):
 
 Scan the directory for files that look load-bearing but are not mentioned in the AGENTS.md:
-- Public export files added after `verified-at` (compare file mtime to `verified-at` date if available, otherwise compare to `verified-against` git history)
 - Files matching: `index.*`, `*router.*`, `*handler.*`, `*schema.*`, `*types.*`, `*model.*`, route handler files (Next.js `route.ts`, Express `*.routes.ts`, etc.)
+
+For each such file, determine whether it postdates the stamp using git exclusively:
+
+```
+git log <verified-against>..HEAD -- <file>
+```
+
+If the log returns commits, the file may have changed since the stamp — flag as potential uncovered surface.
+If the log is empty, the file is unchanged since the stamp — skip.
+If `verified-against` is absent from frontmatter, treat all load-bearing files as uncovered (do not guess at freshness via mtime or any other heuristic).
+
+The freshness signal is exclusively `git log` since the stamp's SHA. Never use file mtime — mtime is unreliable post-clone.
 
 If any are found and not mentioned → flag as **uncovered surface**.
 

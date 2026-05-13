@@ -16,6 +16,67 @@ When user invokes this skill, start with:
 
 Never read or pass to a subagent: `.env`, `.env.*`, `.envrc`, `.dev.vars*`, `secrets.*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `id_rsa*`, `.npmrc`, `.pypirc`, `~/.aws/credentials`, `~/.config/gcloud/`, `gha-creds-*.json`, `.terraformrc`. If `find` / `ls` surfaces any, skip silently. Variable **names** may be inferred from non-secret sources (`process.env.X` in code, schema files, `wrangler.toml` `[vars]` keys) — values never.
 
+### Filesystem traversal policy
+
+All filesystem traversal MUST go through the `Glob` or `Read` tools — never raw shell commands (`find`, `ls`, `dir`). This ensures the skill works on Windows/PowerShell as well as POSIX systems. Use Glob patterns: `*/` for top-level subdirectories, `**/` for nested traversal. Examples:
+
+- Top-level dirs: `Glob("*/")` 
+- Source subdirs: `Glob("src/**/")` 
+- Specific files: `Glob("**/package.json")`, `Glob("**/*.csproj")`
+
+---
+
+## Phase 0.5 — Sub-Agent Dispatch Policy
+
+Three reusable sub-agents that init MAY dispatch. All three use Haiku (mechanical, parallelizable work). Sonnet/Opus stay on the main thread for synthesis and user interaction.
+
+### §1 Stack-detector sub-agent (Haiku)
+
+**When to dispatch:** Always, at the start of Path A, before A1 inline parsing.
+
+**Input:** `{ repo_root, hard_exclusions }`
+
+**Behavior:** Walk all Tier-1 manifests (see A1 list). Parse each file found. Return a structured report.
+
+**Output:** JSON-shaped report with fields:
+- `language` — primary language (TypeScript, Python, Rust, Go, etc.)
+- `runtime` — runtime and version (Node.js 20, Python 3.11, Deno 1.x, Bun 1.x, etc.)
+- `framework` — detected framework (Astro, Next.js, FastAPI, etc.) or `null`
+- `deps` — top 5 key dependencies with versions
+- `commands` — map of `{ dev, build, test, lint, typecheck, deploy }` from manifest scripts
+- `structure` — top-level source directories detected via Glob
+- `boundaries` — lockfiles and generated dirs to treat as read-only
+- `monorepo_packages` — list of package paths if workspace signals detected, else `[]`
+
+**Caller behavior:** Main agent ingests the report, skips re-parsing manifests inline, surfaces detected values to user at A5.
+
+### §2 Monorepo-splitter sub-agent (Haiku)
+
+**When to dispatch:** Only when stack-detector reports `monorepo_packages` with >1 entry, or when `pnpm-workspace.yaml`, `lerna.json`, `nx.json`, or `turbo.json` is detected.
+
+**Input:** `{ packages: string[] }` — list of detected package paths.
+
+**Behavior:** Present packages to user via `AskUserQuestion` (multiSelect) in the main agent. For each user-selected package, the main agent runs sub-Path-A (A2–A9) scoped to that package directory.
+
+**Output:** Per-package context bundle — same shape as a single-package A1 report, one entry per selected package.
+
+**Caller behavior:** Main agent runs assembly (Step 2) once per bundle, writing each package's files into its own subdirectory. `global_core.md` and `shims/` remain at repo root and are not duplicated.
+
+### §3 Validation sub-agent (Haiku)
+
+**When to dispatch:** At end of Step 3 (after all files written), before Step 4 cleanup. Dispatch once per output file that was written.
+
+**Input:** Paths to just-written files — typically `AGENTS.md`, `llms.txt`, `.agents/project_context.md`, and any shim outputs.
+
+**Behavior:** Scan each file for:
+- Leftover `<!-- ... -->` HTML comment placeholders
+- `<!-- TODO -->` markers
+- Unfilled template tokens matching the pattern `<!-- [a-z]+ -->` or `<placeholder>`
+
+**Output:** List of unresolved items with file path and line number. Empty list if clean.
+
+**Caller behavior:** Main agent surfaces any unresolved items in the Step 3 summary under "Open TODOs". If the list is non-empty, prompt the user to resolve before committing.
+
 ---
 
 ## Step 1: Ask Path Choice
@@ -40,16 +101,25 @@ Options:
 
 ### A1. Scan for Config Files
 
-Check for existence (don't read yet):
-- `package.json` (Node)
-- `pyproject.toml` (Python)
-- `Cargo.toml` (Rust)
-- `go.mod` (Go)
-- `Gemfile` (Ruby)
-- `composer.json` (PHP)
-- `pom.xml` / `build.gradle` (Java)
+Dispatch the stack-detector sub-agent (Phase 0.5 §1) and ingest its result. The sub-agent walks all Tier-1 manifests below and returns a structured report — do not re-parse manifests inline.
 
-Also check for:
+Check for existence (Tier-1 manifests, in priority order — don't read yet):
+- `package.json` (Node.js — grep for `"scripts"`, `"dependencies"`, `"workspaces"`; lockfile: `pnpm-lock.yaml` / `package-lock.json` / `yarn.lock`; commands: `npm run dev / build / test`)
+- `pyproject.toml` or `setup.py` (Python — grep for `[tool.poetry]`, `[project]`, `[build-system]`; lockfile: `poetry.lock`, `uv.lock`; commands: `python -m pytest`, `uvicorn`, `django-admin`)
+- `Cargo.toml` (Rust — grep for `[package]`, `[workspace]`; lockfile: `Cargo.lock`; commands: `cargo build / test / run`)
+- `go.mod` (Go — grep for `module`, `require`; lockfile: `go.sum`; commands: `go build / test / run`)
+- `pom.xml` (Java/Maven — grep for `<groupId>`, `<artifactId>`; lockfile: none; commands: `mvn package / test`)
+- `build.gradle` (Java/Groovy Gradle — grep for `apply plugin`, `dependencies`; commands: `./gradlew build / test`)
+- `build.gradle.kts` (Kotlin DSL Gradle — grep for `plugins { }`, `kotlin("jvm")`; same commands as above; presence of `src/main/kotlin/` confirms Kotlin)
+- `*.csproj` / `*.sln` (.NET — multiple `.csproj` files indicate a multi-project solution; grep for `<TargetFramework>`; commands: `dotnet build / test / run`)
+- `mix.exs` (Elixir — grep for `def project`, `deps`; lockfile: `mix.lock`; commands: `mix compile / test / phx.server`)
+- `deno.json` / `deno.jsonc` (Deno — grep for `"tasks"`, `"imports"`; no separate lockfile; commands: `deno task dev / build / test`)
+- `bun.lock` / `bun.lockb` (Bun — co-exists with `package.json`; presence distinguishes Bun from npm/pnpm; commands: `bun run dev / build / test`)
+- `Package.swift` (Swift — grep for `.target(`, `.product(`; commands: `swift build / test / run`)
+- `Gemfile` (Ruby — grep for `gem`, `source`; lockfile: `Gemfile.lock`; commands: `bundle exec rails server / rspec`)
+- `composer.json` (PHP — grep for `"require"`, `"scripts"`; lockfile: `composer.lock`; commands: `composer install`, `php artisan serve`)
+
+Also check for framework-specific files:
 - `astro.config.mjs`, `astro.config.ts` (Astro)
 - `next.config.js`, `next.config.mjs` (Next.js)
 - `vite.config.ts`, `vite.config.js` (Vite)
@@ -59,10 +129,17 @@ Also check for:
 **Logic:** If multiple found, prioritize by this order:
 1. **Node.js + TypeScript**: `package.json` + `tsconfig.json`
 2. **Node.js + JavaScript**: `package.json` alone
-3. **Python**: `pyproject.toml` or `setup.py`
-4. **Rust**: `Cargo.toml`
-5. **Go**: `go.mod`
-6. **Ruby/PHP/Java**: (as above)
+3. **Bun**: `bun.lock` or `bun.lockb` alongside `package.json`
+4. **Deno**: `deno.json` or `deno.jsonc`
+5. **Python**: `pyproject.toml` or `setup.py`
+6. **Rust**: `Cargo.toml`
+7. **Go**: `go.mod`
+8. **Kotlin (Gradle)**: `build.gradle.kts`
+9. **Java (Gradle/Maven)**: `build.gradle` or `pom.xml`
+10. **.NET**: `*.csproj` or `*.sln`
+11. **Elixir**: `mix.exs`
+12. **Swift**: `Package.swift`
+13. **Ruby/PHP**: (as above)
 
 ### A2. Read & Parse Primary Config
 
@@ -100,12 +177,7 @@ Based on what was found, read the relevant file(s):
 
 ### A3. Detect Project Structure
 
-Scan the codebase for directories:
-
-```bash
-# Look for these patterns
-find . -maxdepth 2 -type d \( -name "src" -o -name "app" -o -name "lib" -o -name "components" -o -name "utils" -o -name "services" -o -name "routes" -o -name "pages" -o -name "tests" -o -name "test" -o -name "__tests__" \) | head -20
-```
+Scan the codebase for directories using the `Glob` tool (see Filesystem traversal policy above). Use patterns such as `src/*/`, `app/*/`, `lib/*/` and check for the presence of these well-known directories: `src/`, `app/`, `lib/`, `components/`, `utils/`, `services/`, `routes/`, `pages/`, `tests/`, `test/`, `__tests__/`.
 
 Extract:
 - Primary source directory: `src/`, `app/`, `lib/`, etc.
@@ -148,31 +220,17 @@ If user says "yes", proceed to A6. If "no", ask them to clarify.
 
 ### A6. Ask for Required User Input
 
-Use `AskUserQuestion` to gather:
+Ask the user three questions in plain prose (do NOT use `AskUserQuestion` for these — they require free-form text, not multiple choice):
 
-```
-Question 1: "Project name"
-Input: text field
-Example: "zennlogic.com" or "payment-api"
+1. "What is the project name?" (e.g., `zennlogic.com` or `payment-api`)
+2. "What is the project's purpose in one sentence?" (e.g., "Personal portfolio and AI-powered site built on Astro 6 + Cloudflare Workers")
+3. "Who owns this project — team or person?" (e.g., `Zenn` or `Platform Team`)
 
-Question 2: "Project purpose (1 sentence)"
-Input: text field
-Example: "Personal portfolio and AI-powered site built on Astro 6 + Cloudflare Workers"
-
-Question 3: "Owner (team or person)"
-Input: text field
-Example: "Zenn" or "Platform Team"
-```
-
-**Store responses.**
+Wait for all three answers before proceeding. **Store responses.**
 
 ### A7. Ask for Optional Additions
 
-```
-Question: "Anything else you want to include in project_context.md?"
-Input: large text field
-Examples: Custom code rules, testing setup, git workflow, env variables, secrets policy, etc.
-```
+Ask the user in plain prose: "Is there anything else you want to include in `project_context.md`? For example: custom code rules, testing setup, git workflow, env variables, or secrets policy. (Press Enter to skip.)"
 
 **Store the response (it goes into project_context as additional content).**
 
@@ -192,6 +250,8 @@ Replace placeholders:
 - **Append any "anything else" content at the end** (or in appropriate sections)
 
 Write to: `.agents/project_context.md`
+
+After writing, dispatch the validation sub-agent (Phase 0.5 §3) against `.agents/project_context.md` and report any unresolved placeholders to the user before proceeding.
 
 ### A9. Generate `llms.txt` (Path A)
 
@@ -220,6 +280,8 @@ Replace placeholders with detected values:
 
 Write to: `llms.txt` (repo root)
 
+After writing, dispatch the validation sub-agent (Phase 0.5 §3) against `llms.txt` and report any unresolved placeholders to the user before proceeding.
+
 Proceed to **Step 2: Assembly** below.
 
 ---
@@ -228,26 +290,13 @@ Proceed to **Step 2: Assembly** below.
 
 ### B1. Ask Project Basics
 
-Use `AskUserQuestion` (single multi-question):
+Ask the user three questions in plain prose (do NOT use `AskUserQuestion` — free-form text, not multiple choice):
 
-```
-Question 1: "Project name"
-Header: "Identity"
-Input: text
-Placeholder: "zennlogic.com"
+1. "What is the project name?" (e.g., `zennlogic.com`)
+2. "What is the project's purpose in one sentence?" (e.g., "Personal portfolio and AI-powered site")
+3. "Who owns this project — team or person?" (e.g., `Zenn` or `Platform Team`)
 
-Question 2: "Project purpose (1 sentence)"
-Header: "Identity"
-Input: text
-Placeholder: "Personal portfolio and AI-powered site"
-
-Question 3: "Owner (team or person)"
-Header: "Identity"
-Input: text
-Placeholder: "Zenn" or "Platform Team"
-```
-
-**Store responses.**
+Wait for all three answers. **Store responses.**
 
 ### B2. Ask Project Type
 
@@ -274,56 +323,31 @@ Options:
 
 ### B3. Ask Stack Details
 
-```
-Question: "Describe your tech stack (versions, key dependencies, runtime)"
-Header: "Stack"
-Input: text
-Placeholder: "React 19, Vite 5, Node 20 LTS, TypeScript 5.3, Vitest, ESLint"
-```
+Ask in plain prose: "Describe your tech stack — versions, key dependencies, and runtime. (e.g., `React 19, Vite 5, Node 20 LTS, TypeScript 5.3, Vitest, ESLint`)"
 
 **Store response.**
 
 ### B4. Ask for Custom Rules (Optional)
 
-```
-Question: "Any project-specific code style rules or overrides? (optional)"
-Header: "Code Style"
-Input: text
-Placeholder: "Use @/ import aliases, never relative ../../. Prefer async/await over .then()"
-```
+Ask in plain prose: "Any project-specific code style rules or overrides? For example: `Use @/ import aliases, never relative ../../`. Skip if you follow global defaults."
 
 **Store response (may be empty).**
 
 ### B5. Ask Project Structure (Optional)
 
-```
-Question: "Describe your project structure briefly (optional)"
-Header: "Structure"
-Input: text
-Placeholder: "src/pages/ for routes, src/components/ for React components, src/lib/ for utilities"
-```
+Ask in plain prose: "Describe your project structure briefly, if you'd like. For example: `src/pages/ for routes, src/components/ for React components, src/lib/ for utilities`. Skip to leave this section blank."
 
 **Store response (may be empty).**
 
 ### B6. Ask Testing Setup (Optional)
 
-```
-Question: "Testing setup details (optional)"
-Header: "Testing"
-Input: text
-Placeholder: "Vitest for unit tests, runs with npm run test, test files in src/__tests__/"
-```
+Ask in plain prose: "What's your testing setup? For example: `Vitest for unit tests, runs with npm run test, test files in src/__tests__/`. Skip to leave blank."
 
 **Store response (may be empty).**
 
 ### B7. Final Catch-All
 
-```
-Question: "Anything else you want to include in project_context.md?"
-Header: "Additional"
-Input: large text area
-Placeholder: "Git workflow, secrets policy, env variables, deployment platform, etc."
-```
+Ask in plain prose: "Anything else to include in `project_context.md`? For example: git workflow, secrets policy, env variables, deployment platform. Press Enter to skip."
 
 **Store response (may be empty).**
 
@@ -376,15 +400,43 @@ Proceed to **Step 2: Assembly** below.
 
 ---
 
+## Procedure: Assemble AGENTS.md
+
+Inputs: `.agents/global_core.md`, `.agents/project_context.md`, detected stack type.
+
+Steps:
+
+1. Read `global_core.md` in full.
+2. If detected stack is Node, TypeScript, Deno, or Bun, also include the `<rules id="code-quality-js-ts">` block (already in `global_core.md`; it is conditionally appended to the output, not the file).
+3. Read `.agents/project_context.md`.
+4. Concatenate with `\n\n---\n\n` separators.
+5. Write to repo-root `AGENTS.md`. Overwrite — the file is fully regenerated each time.
+6. Stamp output with YAML frontmatter at the top:
+   ```yaml
+   ---
+   generated-by: init
+   verified-against: <HEAD SHA>
+   verified-at: <ISO date>
+   ---
+   ```
+
+This procedure is invoked by init at Step 2A, by `blueprint` Mode 1 Phase 1H after intent creation, and by any future skill that mutates `global_core.md` or `project_context.md`.
+
+For shim-based outputs (CLAUDE.md, copilot-instructions.md, agents.mdc, .windsurfrules / global_rules.md): follow the same procedure with the relevant shim file prepended before `global_core.md`.
+
+---
+
 ## Step 2: Assembly
 
 ### 2A. Generate `AGENTS.md` (Always)
+
+Follow the **Procedure: Assemble AGENTS.md** above. In summary:
 
 Read:
 - `.agents/global_core.md`
 - `.agents/project_context.md` (just generated)
 
-Concatenate with a separator:
+Concatenate with a separator (include `<rules id="code-quality-js-ts">` only if stack is Node, TypeScript, Deno, or Bun):
 
 ```
 [contents of global_core.md]
@@ -490,6 +542,22 @@ Write to: `.cursor/rules/agents.mdc`
 
 ### 2F. Generate Windsurf rules files (if requested)
 
+Before writing, check if `.windsurfrules` already exists in the repo root — if so, default the question below to the option that matches the current state.
+
+Use `AskUserQuestion`:
+
+```
+Question: "Which Windsurf Cascade rule files should I write?"
+Header: "Windsurf Output"
+Options:
+  1. ".windsurfrules only" — workspace-scoped rules; Cascade picks these up automatically.
+  2. "global_rules.md only" — surfaced into Cascade memory; useful if you manage rules manually.
+  3. "Both .windsurfrules and global_rules.md"
+  4. "Neither — skip Windsurf output"
+```
+
+Assemble the content:
+
 Read:
 - `.agents/shims/windsurf.md`
 - `.agents/global_core.md`
@@ -509,11 +577,12 @@ Concatenate (same structure as 2E):
 [contents of project_context.md]
 ```
 
-Write the same assembled content to **both**:
-- `.windsurfrules` (repo root — workspace-scoped rules)
-- `global_rules.md` (repo root — surfaced into Cascade memory)
+Write only the file(s) the user selected:
+- `.windsurfrules` (repo root) — if option 1 or 3
+- `global_rules.md` (repo root) — if option 2 or 3
+- If option 4: skip both; note this in the Step 3 summary.
 
-> Windsurf reads `AGENTS.md` natively. These files are only needed when the user explicitly relies on Cascade's rule files. If the user only wants one, ask which.
+> Windsurf reads `AGENTS.md` natively. These files are only needed when the user explicitly relies on Cascade's rule files.
 
 ---
 
@@ -645,6 +714,33 @@ After all files are generated, summarize for the user:
   3. Commit both files: git add AGENTS.md llms.txt && git commit -m "Add agent standards (AGENTS.md, llms.txt)"
   4. (Optional) Set up CI to regenerate AGENTS.md and llms.txt on push if you edit .agents/ files
 ```
+
+---
+
+## Step 4: Cleanup Handoff
+
+After generation, identify cleanup candidates:
+
+- **Unused shims** — every `shims/<name>.md` where `<name>` is not in the user's selected outputs.
+- **Consumed templates** — `project_context.template.md` (if `project_context.md` now exists), `llms-template.txt` (if `llms.txt` now exists), `nested-agents-md.template.md` (if any nested `AGENTS.md` was generated).
+- **Opted-out layer scaffolds** — `architecture/` if architecture layer was declined, `intents/` if intents layer was declined.
+
+Present via `AskUserQuestion`:
+
+```
+Question: "Remove unambiguous cleanup candidates?"
+Header: "Cleanup"
+Options:
+  1. "Yes, remove them" — delete the candidates listed above and report what was removed.
+  2. "Skip" — leave everything in place; report the candidate list so you can run tidy-scaffold later.
+  3. "Run full tidy-scaffold" — invoke .agents/skills/tidy-scaffold/SKILL.md for a deeper scan (orphan skill folders, blank placeholders, byte-identical layer scaffolds).
+```
+
+If option 1: remove the candidates, report what was removed.
+If option 2: report the full candidate list.
+If option 3: instruct the user to invoke `.agents/skills/tidy-scaffold/SKILL.md`.
+
+Never remove: `global_core.md`, `project_context.md`, root `AGENTS.md`, `llms.txt`, any file under `.git/`, `.env*`, or files with uncommitted edits.
 
 ---
 

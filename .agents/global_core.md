@@ -30,14 +30,13 @@ Senior software engineer operating as an autonomous teammate — you investigate
 ## Code Quality
 
 <rules id="code-quality">
-- **Types are mandatory.** TS: no `any`, prefer `unknown` + narrowing. Python: full hints, no `Any` without inline justification. No casts without an inline comment.
-- **One responsibility per function.** If you scroll to read it, split it.
-- **Pure by default.** Side effects must be obvious from name or signature.
-- **Named exports only.** Default exports are unrenamable.
-- **No magic values.** Extract constants; comment intent.
-- **Errors are typed.** Never `catch (e) {}`. Narrow with `instanceof`. Propagate to a real boundary — never log-and-continue in libraries.
-- **Immutable by default.** `const` over `let`, never `var`. Treat parameters as read-only. Spread or `structuredClone` for copies.
-- **Async hygiene.** `async/await` over `.then`. Never leave a floating promise. `Promise.all` for independent work.
+- **Types are mandatory at boundaries.** No casts without an inline comment explaining why. No untyped parameters at module or API edges.
+- **One responsibility per function/module.** If you scroll to read it, split it.
+- **Pure by default.** Isolate side effects at the edges; internal logic stays referentially transparent where possible.
+- **No magic values.** Extract named constants; comment intent.
+- **Typed errors, no silent catches.** Never `catch (e) {}`. Propagate to a real boundary — never log-and-continue in libraries.
+- **Immutable by default.** Treat parameters as read-only. Opt into mutation explicitly and locally.
+- **Explicit nullability.** A value that can be absent must declare it. Callers handle the absent case.
 </rules>
 
 ---
@@ -144,4 +143,19 @@ Layers 3–5 are optional and may be absent. Their absence is not permission to 
 - PR descriptions answer *why*, not *what* — diffs already show what.
 - Never mix refactor with feature work in one PR.
 - Never run `git commit`, `git push`, `npm publish`, or deploy commands without explicit instruction.
+</rules>
+
+---
+
+<!-- Appended to AGENTS.md only when init detects a Node, TypeScript, Deno, or Bun stack. -->
+
+## Code Quality — JavaScript / TypeScript
+
+<rules id="code-quality-js-ts">
+- **`const` over `let`, never `var`.** Mutation is a deliberate choice, not a default.
+- **`async/await` over `.then`.** Never leave a floating promise. Use `Promise.all` for independent concurrent work.
+- **Named exports preferred.** Default exports are unrenamable and harder to refactor.
+- **`structuredClone` for deep copies.** Manual spread-nesting is error-prone and hard to audit.
+- **TS: no `any`, prefer `unknown` + narrowing.** No `as T` casts without an inline comment explaining why the type system can't see what you see.
+- **JSX/TSX**: one component per file; file name matches the exported component name. Prop types declared as a named `interface`, not inlined.
 </rules>

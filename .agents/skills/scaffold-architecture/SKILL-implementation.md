@@ -16,6 +16,40 @@ Never modify:
 
 ---
 
+## Phase 0.5: Sub-Agent Dispatch Policy
+
+The three detection tiers are independent. During Phase 1 (Detection), dispatch them as three parallel Haiku sub-agents in a single message (three Agent calls). The main agent (Sonnet) waits for all three before merging results.
+
+### Tier-1 IaC Scanner (Haiku)
+
+- **Input:** `{repo_root, hard_exclusions}`
+- **Behavior:** Glob for `terraform/**`, `wrangler.toml`, `docker-compose*.yml`, `**/*.k8s.yaml`, `**/Chart.yaml`. Parse each file. Emit a node list with `confidence: high` and `source: <path>`.
+- **Output:** Structured node list.
+
+### Tier-2 Manifest Scanner (Haiku)
+
+- **Input:** `{repo_root, detected_stack_languages, hard_exclusions}`
+- **Behavior:** Parse the package manifests for each detected language. Apply the Tier-2 Dependency Classification table. Emit nodes with `confidence: medium`.
+- **Output:** Structured node list.
+
+### Tier-3 Code-Reference Scanner (Haiku)
+
+- **Input:** `{repo_root, detected_stack_languages, hard_exclusions}`
+- **Behavior:** Grep for the env-var patterns from the Tier-3 section in source files of the detected languages only (do not grep all language patterns everywhere). Also grep for route-handler patterns (`@RestController`, `app.get(...)`, `func ... http.HandlerFunc`, `[ApiController]`, `routes.rb`, etc.). Emit nodes with `confidence: low`.
+- **Output:** Structured node list.
+
+### Merge (main agent)
+
+After all three sub-agents return:
+
+1. Merge the three node lists.
+2. Dedupe by node name + kind (highest confidence wins on collision).
+3. Apply the 30-node cap (see Phase 1F).
+4. Annotate low-confidence nodes with `<!-- TODO: confirm -->`.
+5. Proceed to Phase 2A / 2B / 2C depending on the selected mode.
+
+---
+
 ## Entry Point
 
 When invoked, run **Phase 0** immediately. Do not ask for a mode until orientation is complete — the orientation determines whether the skill can even run.
@@ -112,7 +146,11 @@ Read top-level deps:
 | `composer.json` | `require` |
 | `pom.xml`, `build.gradle` | Dependencies |
 
-**Dependency classification table** (mapping common deps to architecture roles — extend as needed):
+**Tier-2 Dependency Classification**
+
+Per-language tables mapping common deps to architecture roles. Source manifest listed at the top of each block. If a dep does not match any row but looks load-bearing (e.g. top 5 by import count), include it with a question mark in the label and `confidence: medium`.
+
+**Node / TypeScript** — source: `package.json` (`dependencies`)
 
 | Dep substring | Role | Adds to |
 |---|---|---|
@@ -122,27 +160,125 @@ Read top-level deps:
 | `openai`, `anthropic`, `cohere`, `replicate` | External AI API | system.mmd (External) |
 | `pg`, `postgres`, `mysql`, `mysql2`, `sqlite3`, `mongodb`, `mongoose`, `prisma`, `drizzle-orm`, `typeorm`, `sequelize`, `kysely` | Primary DB | system.mmd (State) |
 | `redis`, `ioredis`, `@upstash/redis` | Cache | system.mmd (State) |
-| `@aws-sdk/client-s3`, `boto3` (with s3), `@google-cloud/storage`, `cloudflare:r2` | Object store | system.mmd (State) |
-| `bullmq`, `kue`, `agenda`, `celery`, `sidekiq`, `@cloudflare/workers-types` (queues) | Background queue | system.mmd (Application) |
+| `@aws-sdk/client-s3`, `@google-cloud/storage`, `cloudflare:r2` | Object store | system.mmd (State) |
+| `bullmq`, `kue`, `agenda`, `@cloudflare/workers-types` (queues) | Background queue | system.mmd (Application) |
 | `next`, `nuxt`, `astro`, `remix`, `sveltekit`, `gatsby` | Web app framework | system.mmd (Application) |
-| `express`, `fastify`, `koa`, `hono`, `fastapi`, `flask`, `django`, `rails`, `spring-boot-starter-web` | API framework | system.mmd (Application) |
+| `express`, `fastify`, `koa`, `hono` | API framework | system.mmd (Application) |
 | `socket.io`, `ws`, `@cloudflare/durable-objects` | Real-time / WebSocket | system.mmd (Application) |
 | `pusher`, `ably`, `liveblocks` | External real-time service | system.mmd (External) |
 | `sentry`, `datadog`, `newrelic`, `honeycomb` | Observability | deployment.mmd (Observability) |
 
-If a dep doesn't match any row but looks load-bearing (e.g. it's in the top 5 by import count across the repo), include it with a question mark in the label and `confidence: medium`.
+**Python** — source: `pyproject.toml`, `requirements.txt`, `Pipfile`, `setup.py`
+
+| Dep substring | Role | Adds to |
+|---|---|---|
+| `fastapi`, `flask`, `django` | API / web framework | system.mmd (Application) |
+| `sqlalchemy`, `psycopg2`, `asyncpg`, `pymysql`, `pymongo` | Primary DB | system.mmd (State) |
+| `redis`, `aioredis` | Cache | system.mmd (State) |
+| `boto3` (with s3 client), `google-cloud-storage` | Object store | system.mmd (State) |
+| `celery`, `rq` | Background queue | system.mmd (Application) |
+| `openai`, `anthropic`, `cohere` | External AI API | system.mmd (External) |
+| `sentry-sdk`, `datadog`, `newrelic` | Observability | deployment.mmd (Observability) |
+
+**Java (Spring)** — source: `pom.xml`, `build.gradle`, `build.gradle.kts`
+
+| Dep substring | Role | Adds to |
+|---|---|---|
+| `spring-boot-starter-data-jpa`, `spring-data-jpa`, `hibernate-core` | Relational DB | system.mmd (State) |
+| `spring-boot-starter-data-mongodb` | MongoDB | system.mmd (State) |
+| `spring-boot-starter-data-redis`, `lettuce-core`, `jedis` | Redis cache | system.mmd (State) |
+| `spring-cloud-starter-stream-kafka`, `spring-kafka` | Kafka message bus | system.mmd (Application) |
+| `spring-cloud-starter-aws-`, `aws-java-sdk-` | AWS (service from sub-artifact) | system.mmd (External) |
+| `spring-cloud-starter-vault`, `vault-java-driver` | Vault secrets | system.mmd (External) |
+| `spring-boot-starter-actuator` | Metrics / observability | deployment.mmd (Observability) |
+| `spring-boot-starter-web`, `spring-boot-starter-webflux` | Web API surface | system.mmd (Application) |
+| `spring-ai-` | LLM / AI service | system.mmd (External) |
+
+**.NET** — source: `*.csproj` `<PackageReference>` entries
+
+| Dep substring | Role | Adds to |
+|---|---|---|
+| `Microsoft.EntityFrameworkCore.` | Relational DB (provider = sub-package) | system.mmd (State) |
+| `MongoDB.Driver` | MongoDB | system.mmd (State) |
+| `StackExchange.Redis` | Redis cache | system.mmd (State) |
+| `Microsoft.Azure.ServiceBus`, `Azure.Messaging.ServiceBus` | Azure Service Bus | system.mmd (Application) |
+| `Confluent.Kafka` | Kafka | system.mmd (Application) |
+| `Azure.Identity`, `Azure.Storage.` | Azure cloud | system.mmd (External) |
+| `AWSSDK.` | AWS cloud | system.mmd (External) |
+| `Microsoft.ApplicationInsights`, `OpenTelemetry.` | Observability | deployment.mmd (Observability) |
+
+**Elixir** — source: `mix.exs` deps list
+
+| Dep substring | Role | Adds to |
+|---|---|---|
+| `ecto`, `ecto_sql`, `postgrex`, `myxql` | Relational DB | system.mmd (State) |
+| `broadway`, `broadway_kafka`, `broadway_sqs` | Stream processor | system.mmd (Application) |
+| `phoenix`, `phoenix_live_view` | Web API | system.mmd (Application) |
+| `oban` | Background job processor | system.mmd (Application) |
+| `redix` | Redis cache | system.mmd (State) |
+| `tesla`, `httpoison`, `finch` | External HTTP client (low-confidence; include only if endpoints are obvious) | system.mmd (External) |
+
+**Go** — source: `go.mod`
+
+| Dep substring | Role | Adds to |
+|---|---|---|
+| `gorm.io/gorm`, `github.com/jackc/pgx/`, `database/sql` | Relational DB | system.mmd (State) |
+| `go.mongodb.org/mongo-driver` | MongoDB | system.mmd (State) |
+| `github.com/redis/go-redis/`, `github.com/go-redis/redis/` | Redis cache | system.mmd (State) |
+| `github.com/segmentio/kafka-go`, `github.com/confluentinc/confluent-kafka-go` | Kafka | system.mmd (Application) |
+| `github.com/aws/aws-sdk-go-v2/` | AWS (service from sub-module) | system.mmd (External) |
+| `cloud.google.com/go/` | GCP | system.mmd (External) |
+| `go.opentelemetry.io/` | Observability | deployment.mmd (Observability) |
+
+**Rust** — source: `Cargo.toml` `[dependencies]`
+
+| Dep substring | Role | Adds to |
+|---|---|---|
+| `sqlx`, `diesel`, `tokio-postgres` | Relational DB | system.mmd (State) |
+| `mongodb` | MongoDB | system.mmd (State) |
+| `redis` | Redis cache | system.mmd (State) |
+| `rdkafka` | Kafka | system.mmd (Application) |
+| `aws-sdk-` | AWS | system.mmd (External) |
+| `axum`, `actix-web`, `rocket`, `warp` | Web API surface | system.mmd (Application) |
+| `tracing-opentelemetry` | Observability | deployment.mmd (Observability) |
+| `tokio` | Async runtime — not an architecture node by itself; skip | — |
+
+**Ruby** — source: `Gemfile`
+
+| Dep substring | Role | Adds to |
+|---|---|---|
+| `pg`, `mysql2`, `sqlite3` | Relational DB | system.mmd (State) |
+| `mongoid` | MongoDB | system.mmd (State) |
+| `redis`, `redis-rails` | Redis cache | system.mmd (State) |
+| `sidekiq`, `resque` | Background jobs | system.mmd (Application) |
+| `rails`, `sinatra`, `grape` | Web API surface | system.mmd (Application) |
 
 ### 1C. Tier-3 Detection — Code References (confidence: low)
 
-Scan source code for:
+Scan source code for env var references, route handlers, and auth middleware. Dispatch Tier-3 detection per-language based on the stack identified by Tier-2 — grep only the languages the stack uses, not all patterns everywhere.
 
-- **Env var names** (`process.env.X`, `os.environ.get('X')`, `Deno.env.get('X')`, `import.meta.env.X`, schema files like `env.ts` with `z.object({...})`):
-  - `*_API_KEY`, `*_TOKEN`, `*_SECRET` → implies an external API (the prefix is usually the service name: `STRIPE_API_KEY` → Stripe)
+**Env-var patterns by language** — scan only source files of the detected stack languages:
+
+| Language | Patterns |
+|---|---|
+| JavaScript / TypeScript | `process.env.X`, `import.meta.env.X`, schema files like `env.ts` with `z.object({...})` |
+| Deno | `Deno.env.get("X")` |
+| Python | `os.environ.get("X")`, `os.environ["X"]`, `os.getenv("X")` |
+| Java (Spring) | `@Value("${X}")`, `${X:default}` in YAML/properties files |
+| Go | `os.Getenv("X")` |
+| .NET | `Configuration["X"]`, `configuration.GetValue<T>("X")`, `[FromConfiguration("X")]` |
+| Rust | `std::env::var("X")`, `dotenv!("X")` |
+| Ruby | `ENV["X"]`, `ENV.fetch("X", default)` |
+| Elixir | `System.get_env("X")`, `Application.get_env(:app, :key)` |
+
+For any env var name matched:
+  - `*_API_KEY`, `*_TOKEN`, `*_SECRET` → implies an external API (prefix is usually the service name: `STRIPE_API_KEY` → Stripe)
   - `*_URL`, `*_HOST`, `*_ENDPOINT` → implies an external service or datastore at that URL
   - `DATABASE_URL`, `DB_HOST` → primary DB connection (confirm with manifest classification)
   - `REDIS_URL` → cache
-- **Route handler files**: Next.js `app/**/route.{ts,js}`, `pages/api/**/*.{ts,js}`, Astro `pages/**.astro`, FastAPI `@app.{get,post,put,delete}`, Express/Hono `router.{get,post,...}`. Group by top-level path segment — that's the API surface entry list on system.mmd.
-- **Auth middleware** signatures: usage of `next-auth`, `lucia`, `@auth/core`, `iron-session`, `passport`, Django's `LoginRequiredMixin`, FastAPI `Depends(get_current_user)`. Surfaces auth as a middleware node on dataflow.mmd.
+
+- **Route handler files**: Next.js `app/**/route.{ts,js}`, `pages/api/**/*.{ts,js}`, Astro `pages/**.astro`, FastAPI `@app.{get,post,put,delete}`, Express/Hono `router.{get,post,...}`, Spring `@RestController` / `@GetMapping` / `@PostMapping`, Go `http.HandleFunc` / `func ... http.HandlerFunc`, .NET `[ApiController]` / `[HttpGet]`, Rails `routes.rb` controller routes. Group by top-level path segment — that's the API surface entry list on system.mmd.
+- **Auth middleware** signatures: usage of `next-auth`, `lucia`, `@auth/core`, `iron-session`, `passport`, Django's `LoginRequiredMixin`, FastAPI `Depends(get_current_user)`, Spring Security `@PreAuthorize` / `SecurityFilterChain`, .NET `[Authorize]`, Go middleware wrapping `http.Handler`. Surfaces auth as a middleware node on dataflow.mmd.
 
 Each Tier-3 hit becomes a node with `confidence: low` and gets a `<!-- TODO: confirm -->` marker in the generated Mermaid.
 
@@ -200,10 +336,15 @@ For each diagram (system → dataflow → deployment, in that order):
 
 ### Pre-Write Safety Check
 
-Run `git diff --quiet HEAD -- .agents/architecture/<file>.mmd`. Non-zero exit (modified) means the file has local edits since HEAD.
+A target diagram file is safe to overwrite if any of the following is true:
 
-- If the file is **template-equivalent** (byte-identical to its `.template.mmd` source after substituting `<dir>/` placeholders): proceed to overwrite. This is the expected case after init.
-- If the file is **modified**: skip with a note in the final report (`Skipped <file>.mmd — locally modified since HEAD. Re-run in Guided mode to overwrite explicitly.`). Do not overwrite in Auto.
+1. The file does not exist.
+2. The file exists, its YAML frontmatter contains `generated-by: scaffold-architecture`, AND `git diff --quiet HEAD -- <file>` returns 0 (no uncommitted local edits).
+3. The file is byte-identical to `.agents/architecture/<name>.template.mmd` if that template still exists.
+
+Otherwise: treat as locally modified or hand-written, skip with a note in the final report (`Skipped <file>.mmd — locally modified since HEAD. Re-run in Guided mode to overwrite explicitly.`). Do not overwrite in Auto.
+
+Note: do not rely on byte-identity to the template as the primary check. `tidy-scaffold` may have removed the template file; if the template is absent, fall back to condition 1 or 2. This makes the skill template-removal-tolerant.
 
 ### Render Mermaid
 
@@ -334,6 +475,8 @@ For each of `system.mmd`, `dataflow.mmd`, `deployment.mmd`:
 
 ### Compute Drift per File
 
+Do not use file mtime. `git clone` resets all file timestamps to checkout time, making mtime unreliable as a freshness signal. Use git-based checks exclusively.
+
 For each file with frontmatter:
 
 ```
@@ -341,9 +484,17 @@ git log --oneline <verified-against>..HEAD -- <architecture-relevant paths>
 ```
 
 Architecture-relevant paths to filter the log on:
-- For `system.mmd`: `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `composer.json`, `Gemfile`, `pom.xml`, `build.gradle`
+- For `system.mmd`: `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `composer.json`, `Gemfile`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `*.csproj`, `mix.exs`
 - For `dataflow.mmd`: route handler dirs from project_context, middleware dirs, `src/auth/`, `src/middleware/`
 - For `deployment.mmd`: `terraform/`, `wrangler.toml`, `fly.toml`, `render.yaml`, `docker-compose.yml`, `**/Dockerfile`, `.github/workflows/`, `k8s/`, `kubernetes/`
+
+For uncovered surface detection (env vars, deps, IaC newly added since the stamp), use:
+
+```
+git diff <verified-against> HEAD -- <manifest-path>
+```
+
+Parse added lines (`+` prefix) to detect new deps or env var definitions introduced since the stamp.
 
 Classify:
 - 0 commits AND 0 uncovered surfaces (next step) → **Fresh**

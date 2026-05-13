@@ -22,6 +22,61 @@ Never delete, never propose to delete, never preview:
 
 ---
 
+## Phase 0.5: Sub-Agent Decomposition Policy
+
+The five category detectors (Phase 1, lines 91-187) are independent and dispatch in parallel via five Haiku sub-agents.
+
+### Per-Category Sub-Agent (Haiku)
+
+**One sub-agent per category, dispatched in parallel.**
+
+Input (per call):
+```json
+{
+  "category_name": "consumed-templates | unused-shims | opted-out-layer-folders | empty-layer-scaffolds | orphan-skill-folders",
+  "repo_root": "<absolute path>",
+  "hard_exclusions": [<list of paths to never touch>]
+}
+```
+
+Output (per sub-agent): structured candidate list
+```json
+{
+  "category": "<name>",
+  "candidates": [
+    {
+      "path": "<relative path>",
+      "rationale": "<concrete reason>",
+      "confidence": "high | medium | low",
+      "references": "<any linked files>"
+    },
+    ...
+  ]
+}
+```
+
+Sub-agent behavior:
+- Read Phase 1 detection rules for the assigned category only.
+- Scan `.agents/` and adjacent paths per detection spec.
+- Return all candidates (cap applied by main agent, not sub-agents).
+- Do not apply Hard Exclusions — return raw candidates; main agent filters.
+
+### Main Agent (Sonnet)
+
+**Coordinates sub-agent dispatch and safety enforcement.**
+
+1. Dispatch all five sub-agents in a single parallel batch.
+2. Collect candidate lists; merge into a unified queue.
+3. Apply 20-per-run cap: if total > 20, prioritize by category order (1 → 4 → 2 → 3 → 5).
+4. **Safety filter:** For each candidate, check against Hard Exclusions list. Veto anything matching global_core, project_context, root AGENTS.md, etc. (main agent owns this enforcement).
+5. For remaining candidates, run `git diff --quiet HEAD -- <path>` to detect uncommitted edits (atomic check in main agent).
+6. Route to mode handler (Scan, Interactive, Sweep) with vetted candidate list.
+
+**Main agent's safety-guard list (apply before presenting to user):**
+- Never present candidates for deletion that match: `.agents/global_core.md`, `.agents/project_context.md`, `.agents/SKILL.md`, `.agents/SKILL-implementation.md`, `.agents/README.md`, root `AGENTS.md`, root `README.md`, `CHANGELOG.md`, `LICENSE`, `.git/`, lockfiles, secret files.
+
+---
+
 ## Entry Point
 
 When the skill is invoked, run **Phase 0** immediately. Do not ask for a mode until orientation is complete — orientation determines what categories are even applicable.
@@ -98,21 +153,22 @@ For every category, build the candidate list. A candidate is `{path, category, s
 
 ### Category 1 — Consumed Templates
 
-Detection: a `.template.*` file exists AND its generated counterpart exists in the same directory (or the expected output path).
+Detection: a `.template.*` file exists AND its generated counterpart exists at the canonical destination, **regardless of byte identity**.
 
-| Template path | Counterpart that signals consumption |
+A template is "consumed" when its generated counterpart exists. The byte-identity rule is dropped — it was brittle and fails when scaffold-context and scaffold-architecture stamp generated files with YAML frontmatter.
+
+| Template path | Consumed if this exists |
 |---|---|
 | `.agents/project_context.template.md` | `.agents/project_context.md` |
-| `.agents/llms-template.txt` | `llms.txt` (repo root) |
-| `.agents/nested-agents-md.template.md` | Any nested `AGENTS.md` outside repo root and `.agents/` |
-| `.agents/architecture/system.template.mmd` | `.agents/architecture/system.mmd` |
-| `.agents/architecture/dataflow.template.mmd` | `.agents/architecture/dataflow.mmd` |
-| `.agents/architecture/deployment.template.mmd` | `.agents/architecture/deployment.mmd` |
-| `.agents/intents/intent.template.md` | Any `.md` file inside `.agents/intents/open/`, `in-flight/`, `done/`, or `abandoned/` (excluding `.gitkeep`) |
+| `.agents/llms-template.txt` | root `llms.txt` OR `.agents/llms.txt` |
+| `.agents/nested-agents-md.template.md` | Any nested `AGENTS.md` (file named `AGENTS.md` anywhere outside root) |
+| `.agents/architecture/system.template.mmd` | `.agents/architecture/system.mmd` with `generated-by` frontmatter |
+| `.agents/architecture/dataflow.template.mmd` | `.agents/architecture/dataflow.mmd` with `generated-by` frontmatter |
+| `.agents/architecture/deployment.template.mmd` | `.agents/architecture/deployment.mmd` with `generated-by` frontmatter |
 
 Risk: `safe`.
 
-Sweep eligibility: yes — if the counterpart exists AND the template content matches the upstream template body (no edits). To verify "no edits," compare the template file's content character-for-character against itself as committed at HEAD (`git show HEAD:<path>`). If the working-tree copy differs from HEAD, drop it from sweep and report as `manual-review` (someone edited the template; preserve it).
+Sweep eligibility: yes — if the counterpart exists. Before removal, verify via `git diff --quiet HEAD -- <template-path>`: if the template file itself has uncommitted local edits, demote to `manual-review`. Do not delete a locally-edited template without user confirmation.
 
 ### Category 2 — Unused Shims
 
@@ -268,12 +324,20 @@ If the user does not confirm: mark `Keep` and continue.
 
 ### Hand-Edit Detection (within Interactive)
 
-If a file's working-tree content differs from HEAD by more than whitespace (run `git diff --quiet HEAD -- <path>`; non-zero exit = modified), prepend the warning:
+For files with `generated-by` frontmatter:
+1. Parse the frontmatter's `verified-against` SHA.
+2. Run `git log <verified-against>..HEAD -- <path>` to check if commits touched the file after it was verified.
+3. If the log shows commits: file is treated as locally modified. Skip removal unless user explicitly overrides.
+4. Additionally run `git diff --quiet HEAD -- <path>` to detect uncommitted edits. Non-zero exit = modified.
+
+If any git query indicates modification, prepend the warning:
 
 ```
 ⚠ This file has been modified since it was last committed. If you removed
 it now, the local edits would be lost. Confirm you want to proceed.
 ```
+
+Do not rely on file mtime — git clones reset all mtimes. Use git history only.
 
 ### Abort Mid-Session
 

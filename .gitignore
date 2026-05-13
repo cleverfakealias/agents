@@ -1,0 +1,31 @@
+# Claude Code
+.claude/worktrees/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor directories
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Node (in case tooling is added)
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Python (in case tooling is added)
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# Temp / scratch
+*.tmp
+*.bak

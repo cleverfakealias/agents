@@ -28,8 +28,9 @@ Walk the codebase, score directories for local-invariant density, and write mean
 Identify candidate directories, synthesize context from their files, and write nested `AGENTS.md` without pausing.
 
 - Walks the repo tree; skips `.git/`, `node_modules/`, lockfiles, and dirs listed in `llms.txt` `do-not-touch`.
-- Scores each directory with a rubric (file count, naming patterns, public surfaces, churn); threshold ≥ 4.
-- Reads the top 3 files per candidate to synthesize Purpose, Key invariants, Local boundaries, and Entry points.
+- Scores each directory with a polyglot rubric (file count, naming patterns, public surfaces, churn). Patterns cover Node/TS, Java/Kotlin, Go, Rust, .NET, Ruby, Elixir, and Swift conventions (`internal/`, `cmd/`, `controller/`, `repository/`, `src/bin/`, etc.); threshold ≥ 4.
+- Detects each directory's index file using a per-language heuristic: `index.ts/js`, `__init__.py`, `mod.rs/lib.rs`, `doc.go`, `package-info.java`, `*.csproj`, `*.gemspec`, `mix.exs`, `Package.swift`, and more. Falls back to `README.md` if none found.
+- For >3 candidates: dispatches one Haiku sub-agent per candidate directory in a single parallel batch (up to 12 parallel sub-agents). Each sub-agent reads the directory's README, index file, and largest non-test source file, then drafts the AGENTS.md content. The main agent (Sonnet) collects drafts, stamps frontmatter, and writes files.
 - Stamps YAML frontmatter — `verified-against`, `verified-at`, `generated-by: scaffold-context (auto)` — on every file written.
 - Caps at **12 candidates per run**; asks you to narrow scope if more qualify.
 - Reports: "Wrote N nested AGENTS.md files. Skipped M dirs (below threshold)."
@@ -62,7 +63,7 @@ Find every existing nested `AGENTS.md` (everywhere except the repo root), compar
   - **Fresh** — 0 commits since `verified-against`
   - **Lightly drifted** — 1–10 commits
   - **Stale** — >10 commits, or files referenced in the AGENTS.md no longer exist
-- Checks for uncovered surface: new load-bearing files in the dir (public exports, route handlers, type schemas) not mentioned in the AGENTS.md.
+- Checks for uncovered surface: uses `git log <verified-against>..HEAD -- <file>` to identify load-bearing files (public exports, route handlers, type schemas) that have changed since the stamp but are not mentioned in the AGENTS.md. File mtime is never used — it is unreliable post-clone. If `verified-against` is absent, all load-bearing files in the dir are treated as uncovered.
 - Produces a **coverage map** — tree of dirs with AGENTS.md, dirs above threshold without one, and dirs below threshold.
 - Ends with `AskUserQuestion`: "Re-run in Auto or Guided mode for the stale dirs?"
 

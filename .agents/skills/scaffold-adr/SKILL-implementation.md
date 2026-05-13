@@ -9,11 +9,60 @@
 Never read or pass to a subagent: `.env`, `.env.*`, `.envrc`, `.dev.vars*`, `secrets.*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `id_rsa*`, `.npmrc`, `.pypirc`, `~/.aws/credentials`, `~/.config/gcloud/`, `gha-creds-*.json`, `.terraformrc`.
 
 Never modify:
-- Any ADR's content other than the **single Status line** on a superseded ADR in Mode 2
+- Any ADR's content other than the **`status` and `superseded-by` YAML frontmatter fields** on a superseded ADR in Mode 2
 - `.agents/architecture/decisions/0000-template.md` (the template; `tidy-scaffold` removes it if unused)
 - `.agents/architecture/*.mmd` files (those are `scaffold-architecture`'s domain)
 - `.agents/architecture/README.md`
 - Anything outside `.agents/architecture/decisions/`, except an opt-in `llms.txt` append in Mode 1
+
+---
+
+## Phase 0.5 — Sub-Agent Dispatch Policy
+
+This section defines when and how sub-agents are used. Only Mode 3 (Audit) uses sub-agents.
+
+### Per-ADR audit sub-agent (Haiku)
+
+Dispatched only in Mode 3. One sub-agent per ADR file, all dispatched in a single parallel batch (cap at 20 ADRs per run, oldest first by `date` frontmatter field).
+
+**Input:** `{adr_path}` — absolute path to the ADR file.
+
+**Behavior:**
+1. Read the file and parse its YAML frontmatter block (the content between the leading `---` and closing `---`).
+2. Validate required frontmatter fields are present: `adr-number`, `title`, `status`, `date`.
+3. Validate `status` is one of: `Proposed`, `Accepted`, `Rejected`, `Superseded`, `Deprecated`.
+4. Validate `date` is ISO-formatted (`YYYY-MM-DD`).
+5. Confirm the following body sections exist (case-insensitive heading match, with or without trailing colon):
+   - `## Context`
+   - `## Decision`
+   - `## Alternatives considered`
+   - `## Consequences` (and sub-sections Positive / Negative / Follow-up)
+   - `## Revisit when`
+6. For ADRs where `status: Accepted` AND `date` is more than 12 months ago: check that `revisit-when` frontmatter field is non-empty.
+7. For ADRs where `status: Proposed` AND `date` is more than 90 days ago: flag as stale (also cross-check via `git log --format="%cI" -1 -- <adr_path>` if available; fall back to frontmatter `date` if git history is unavailable).
+
+**Output:** structured validation report:
+```
+{
+  "adr_path": "<path>",
+  "status": "<frontmatter status value>",
+  "missing_fields": ["<field>", ...],
+  "missing_sections": ["## Context", ...],
+  "format_issues": ["date not ISO-formatted", ...],
+  "staleness_flag": true | false
+}
+```
+
+### Main agent (Sonnet) role in Audit
+
+1. Lists ADRs (skip `0000-template.md`), caps at 20 oldest by `date`.
+2. Dispatches one Haiku sub-agent per ADR in a single parallel batch.
+3. Collects all sub-agent reports.
+4. Performs cross-ADR checks itself (these require the full inventory and cannot be parallelized per-file):
+   - Duplicate `adr-number` values.
+   - Dangling `superseded-by` values pointing at nonexistent ADRs.
+   - Orphan supersede claims: `supersedes: ADR-X` where ADR-X does not have `superseded-by` pointing back.
+5. Emits the audit report combining sub-agent per-ADR findings with cross-ADR findings.
 
 ---
 
@@ -51,8 +100,10 @@ If `project_context.md` is absent: stop. Tell the user to run init first.
 
 Glob `.agents/architecture/decisions/*.md`. For each file (excluding `0000-template.md`):
 - Parse `NNNN-` prefix from filename → store as `number`.
-- Parse YAML-free top section for `**Status**:` and `**Date**:`.
-- Store `{number, filename, title, status, date}`.
+- Parse YAML frontmatter for `title`, `status`, `date`, `supersedes`, `superseded-by`.
+- Store `{number, filename, title, status, date, supersedes, superseded-by}`.
+
+YAML frontmatter parsing: extract the block between the first `---` line and the next `---` line at the top of the file. Parse each `key: value` line. Treat `null` as null; strip inline comments (content after `#`).
 
 This inventory powers:
 - Auto-numbering (Mode 1, 2)
@@ -70,7 +121,7 @@ Options:
   1. "New — create a new ADR"
      Description: "Guided creation of a fresh ADR. Auto-numbered, all required sections."
   2. "Supersede — create an ADR that replaces an existing one"
-     Description: "New ADR + single-line Status update on the prior ADR. The only allowed edit to an accepted ADR."
+     Description: "New ADR + frontmatter field update on the prior ADR. The only allowed edit to an accepted ADR."
   3. "Audit — read-only report on the state of all ADRs"
      Description: "Check for missing sections, dangling supersede links, stale proposals, old accepted ADRs without revisit triggers."
 ```
@@ -212,13 +263,26 @@ Default: "<owner from project_context.md>"
 
 ### 1J. Render and Confirm
 
+Capture the current git HEAD SHA (`git rev-parse HEAD`). If git is unavailable, use `"unknown"`.
+
 Show the assembled ADR inline:
 
 ```
-ADR-<NNNN>: <Title>
+---
+adr-number: <NNNN>
+title: <Title>
+status: Proposed
+date: <today YYYY-MM-DD>
+supersedes: null
+superseded-by: null
+revisit-when: "<revisit trigger text>"
+generated-by: scaffold-adr
+verified-against: <git HEAD SHA>
+verified-at: <today YYYY-MM-DDT00:00:00Z>
+---
 
-**Status**: Proposed
-**Date**: <today YYYY-MM-DD>
+# ADR-<NNNN>: <Title>
+
 **Owner**: <owner>
 **Deciders**: <leave blank for user to fill in if they want — optional>
 
@@ -266,7 +330,7 @@ If "Let me edit a section": ask which section, accept revised text, re-render, a
 Write to `.agents/architecture/decisions/<filename>`. Confirm:
 
 ```
-✓ Wrote .agents/architecture/decisions/<NNNN>-<slug>.md  (Status: Proposed)
+Wrote .agents/architecture/decisions/<NNNN>-<slug>.md  (Status: Proposed)
 ```
 
 ### 1L. Optional llms.txt Append
@@ -295,18 +359,20 @@ Status: Proposed
 Owner: <owner>
 
 Next steps:
-  • Share with your Deciders for review
-  • Update Status to "Accepted" when consensus is reached (hand-edit; one-line change)
-  • Or run scaffold-adr again in Supersede mode if a future ADR replaces this one
+  - Share with your Deciders for review
+  - Update Status to "Accepted" when consensus is reached (hand-edit the frontmatter status field)
+  - Or run scaffold-adr again in Supersede mode if a future ADR replaces this one
 ```
 
 ---
 
 ## Phase 2: Supersede
 
+**Atomicity contract:** Supersede is atomic in spirit. Either both the new ADR is written AND the target's frontmatter is updated, or neither happens. The precondition check (Phase 2B below) runs before any write to enforce this. If any precondition fails, abort — do not write the new ADR.
+
 ### 2A. List Supersedable ADRs
 
-From the Phase 0C inventory, filter to ADRs where `Status` starts with `Accepted` (i.e. not already `Superseded by...` or `Deprecated`, and not `Proposed`).
+From the Phase 0C inventory, filter to ADRs where `status` frontmatter field is `Accepted` (i.e. not already `Superseded`, `Deprecated`, or `Proposed`).
 
 If the list is empty:
 
@@ -334,46 +400,80 @@ Options:
 
 (Up to 10 options. If more than 10, show the 10 most recently dated; offer "Other — give me a number" as an additional option.)
 
-### 2C. Run Mode 1 Flow with Modifications
+### 2C. Dry-Run Precondition Check
+
+Before running the Mode 1 flow or writing any file, validate the target ADR. Abort cleanly if any precondition fails.
+
+**Preconditions (in order):**
+
+1. **Read the target ADR's frontmatter.** Read the file; extract the YAML frontmatter block (between the first `---` and the closing `---`).
+
+2. **Frontmatter parses as YAML.** If the block is missing or unparseable, abort:
+   ```
+   Precondition failed: <target-filename> has no parseable YAML frontmatter.
+   Cannot supersede safely. Please inspect and correct the file manually.
+   ```
+
+3. **`status: Accepted` exists (case-sensitive value).** If the `status` field is not exactly `Accepted`, abort:
+   ```
+   Precondition failed: <target-filename> status is "<actual value>", not "Accepted".
+   Supersede mode only applies to Accepted ADRs.
+   ```
+
+4. **`superseded-by` is `null` or absent.** If `superseded-by` is already set to a non-null value, abort:
+   ```
+   Precondition failed: <target-filename> already has superseded-by: <value>.
+   This ADR has already been superseded. Cannot supersede it again.
+   ```
+
+5. **Compute exact replacement text and confirm it is unique.** The frontmatter update will change two fields:
+   - `status: Accepted` → `status: Superseded`
+   - `superseded-by: null` → `superseded-by: "ADR-<new-NNNN>"`
+
+   Locate the exact text of both lines in the file. Confirm that the `old_string` for the Edit (the current status and superseded-by lines as they appear in the file) is unique — i.e. a search for that string matches exactly once. If it does not (ambiguous match), abort:
+   ```
+   Precondition failed: the status/superseded-by block in <target-filename>
+   is not uniquely matchable for a safe Edit. Please inspect the file manually.
+   ```
+
+**If all five preconditions pass:** proceed to Phase 2D (run the Mode 1 flow to collect and write the new ADR), then apply the Edit.
+
+**If any precondition fails:** stop. Do not run the Mode 1 flow. Do not write any file. Report which precondition failed with the message above.
+
+### 2D. Run Mode 1 Flow with Modifications
 
 Run Phase 1 (New ADR) end-to-end, with these adjustments:
 
 - **1D. Context** — pre-seed the placeholder with: `Superseding [ADR-<target-NNNN>](./<target-filename>). <Why the previous decision no longer holds — what changed?>`
 - **1E. Decision** — after writing the new decision text, append a line: `\n\nSupersedes [ADR-<target-NNNN>](./<target-filename>).`
-- **1J. Render and confirm** — show the new ADR including the Supersedes line.
+- **1J. Render and confirm** — show the new ADR including the Supersedes line; set `supersedes: "ADR-<target-NNNN>"` in the frontmatter.
 - **1K. Write** — write the new ADR file.
 
-### 2D. Update the Superseded ADR (the only allowed mutation)
+### 2E. Update the Superseded ADR (the only allowed mutation)
 
-Read `.agents/architecture/decisions/<target-filename>`. Find the Status line. It should match:
+With the new ADR now written, apply the Edit to the target file. Update exactly two YAML frontmatter fields:
 
-```
-- **Status**: Accepted
-```
+- Change `status: Accepted` → `status: Superseded`
+- Change `superseded-by: null` → `superseded-by: "ADR-<new-NNNN>"`
 
-Replace with:
+Use the `Edit` tool with the exact `old_string` confirmed in the precondition check (Phase 2C, precondition 5). Nothing else in the target file changes — the body is never modified.
 
-```
-- **Status**: Superseded by [ADR-<new-NNNN>](./<new-filename>)
-```
-
-Use the `Edit` tool with the exact line as `old_string`. If the line doesn't match the expected form (e.g. it says `**Status**: Accepted | Superseded by [...]` as in the template), abort the supersede with a clear error and ask the user to inspect the file manually:
+If the Edit fails at this point (unexpected file mutation between precondition check and edit):
 
 ```
-Couldn't find a clean `**Status**: Accepted` line in <target-filename> to
-update. The file's Status line may have been hand-formatted differently
-than the template.
+Error: the Edit to <target-filename> failed after the new ADR was already
+written. The files are now inconsistent:
+  - New ADR: .agents/architecture/decisions/<new-filename>  (written)
+  - Target ADR: .agents/architecture/decisions/<target-filename>  (NOT updated)
 
-The new ADR <new-filename> was written, but the old one's Status line
-was NOT updated. Please update it manually:
-
-  Change: **Status**: <current value>
-  To:     **Status**: Superseded by [ADR-<new-NNNN>](./<new-filename>)
+Please update the target ADR's frontmatter manually:
+  status: Superseded
+  superseded-by: "ADR-<new-NNNN>"
 ```
 
 Do not attempt any other edits to the target file.
 
-### 2E. Final Report (Supersede mode)
+### 2F. Final Report (Supersede mode)
 
 ```
 scaffold-adr — Done (Supersede)
@@ -381,65 +481,46 @@ scaffold-adr — Done (Supersede)
 Created:
   .agents/architecture/decisions/<new-NNNN>-<slug>.md  (Status: Proposed)
 
-Updated (single Status-line edit only):
+Updated (frontmatter fields only — body unchanged):
   .agents/architecture/decisions/<target-NNNN>-<slug>.md
-  - **Status**: Accepted
-  + **Status**: Superseded by [ADR-<new-NNNN>](./<new-filename>)
+  - status: Accepted          →  status: Superseded
+  - superseded-by: null       →  superseded-by: "ADR-<new-NNNN>"
 
 Next steps:
-  • Share the new ADR with Deciders
-  • Update its Status to "Accepted" when consensus is reached
-  • The superseded ADR remains in the folder as historical record
+  - Share the new ADR with Deciders
+  - Update its status to "Accepted" when consensus is reached (hand-edit the frontmatter)
+  - The superseded ADR remains in the folder as historical record
 ```
 
 ---
 
 ## Phase 3: Audit
 
-### 3A. Per-ADR Checks
+**Read-only. Never writes.**
 
-For each ADR in the inventory (skip `0000-template.md`):
+### 3A. Dispatch Per-ADR Sub-Agents
 
-1. **Required sections present** — Look for the following markdown headings (case-insensitive, allow with or without colon):
-   - `## Context`
-   - `## Decision`
-   - `## Alternatives considered`
-   - `## Consequences`
-   - `## Revisit when`
+List all ADRs (skip `0000-template.md`). Sort by `date` frontmatter field ascending. Cap at 20 oldest.
 
-   Also check the top-of-file metadata:
-   - `**Status**:` line present and parseable
-   - `**Date**:` line present and parseable as YYYY-MM-DD
-   - `**Owner**:` line present
+Dispatch one Haiku sub-agent per ADR in a single parallel batch (see Phase 0.5 for the per-ADR sub-agent contract). Collect all structured reports before proceeding.
 
-   Flag missing sections per ADR.
+### 3B. Cross-ADR Checks (main agent)
 
-2. **Status value valid** — Must match one of:
-   - `Proposed`
-   - `Accepted`
-   - `Superseded by [ADR-NNNN](./<filename>)`
-   - `Deprecated`
+Perform these checks using the full inventory — they require the complete set and cannot be parallelized per-file:
 
-   Flag invalid values.
+1. **Duplicate numbers** — Group inventory by `adr-number` field. Any group with size >1 is a duplicate. Flag.
 
-3. **Revisit when populated for Accepted ADRs** — If Status is `Accepted` and the `## Revisit when` section is empty or contains only template placeholder text, flag as ossification risk.
+2. **Numbering gaps** — Sorted list of `adr-number` values; any `N+1 - N > 1` gap is a missing number. Flag informationally (not always an error — proposals can be deleted before becoming ADRs).
 
-### 3B. Cross-ADR Checks
+3. **Dangling `superseded-by` links** — For any ADR where `superseded-by` is non-null, verify the referenced ADR number exists in the inventory. If not, flag.
 
-1. **Duplicate numbers** — Group inventory by `number` field. Any group with size >1 is a duplicate. Flag.
+4. **Orphan supersede claims** — For any ADR where `supersedes: ADR-X`, verify that ADR-X has `superseded-by` pointing back to this ADR. If not, flag (one side of the link is broken).
 
-2. **Numbering gaps** — Sorted list of numbers; any `N+1 - N > 1` gap is a missing number. Flag informationally (not always an error — proposals can be deleted before becoming ADRs).
-
-3. **Dangling supersede links** — For any ADR with `Status: Superseded by [ADR-NNNN](./X.md)`, check that `X.md` exists in the folder. If not, flag.
-
-4. **Stale proposals** — For any ADR with `Status: Proposed`:
-   - Run `git log --format="%cI" -1 -- <filepath>` to get the most recent commit ISO date for that file.
-   - If `today - last_commit > 90 days`, flag as stale.
-   - If git history unavailable, fall back to comparing the ADR's `**Date**:` field; same threshold.
-
-5. **Old accepted ADRs without revisit triggers** — For any ADR with `Status: Accepted` AND `Date` >12 months ago AND `Revisit when` section empty or placeholder-only, flag.
+5. **Stale proposals** — For any ADR where `status: Proposed` and the sub-agent reported `staleness_flag: true`, include in the cross-ADR stale list.
 
 ### 3C. Produce Audit Report
+
+Combine per-ADR sub-agent findings with cross-ADR findings:
 
 ```
 Audit Report — .agents/architecture/decisions/ — <today's date>
@@ -448,26 +529,24 @@ INVENTORY
 ─────────
   ADR-0001  Use Postgres over DynamoDB                    Accepted   2024-09-12
   ADR-0002  Adopt Workers for edge compute                Accepted   2024-11-03
-  ADR-0003  (file: 0003-replace-postmark-with-resend.md)  Superseded 2025-02-04 → ADR-0009
-  ADR-0007  Adopt Statsig for feature flags               Proposed   2024-12-01  ⚠ stale (>90 days untouched)
+  ADR-0003  (file: 0003-replace-postmark-with-resend.md)  Superseded 2025-02-04 -> ADR-0009
+  ADR-0007  Adopt Statsig for feature flags               Proposed   2024-12-01  [stale >90 days]
   ADR-0009  Use Resend for transactional email            Accepted   2025-04-15
 
 PER-ADR FINDINGS
 ────────────────
   ADR-0001 — OK
-  ADR-0002 — ⚠ Accepted >12 months ago, "Revisit when" is empty (ossification risk)
+  ADR-0002 — [!] Accepted >12 months ago, "revisit-when" is empty (ossification risk)
   ADR-0003 — OK
-  ADR-0007 — ⚠ Proposed, last touched 2024-12-01 (>90 days) — likely abandoned
-  ADR-0009 — ⚠ Missing section: ## Consequences
+  ADR-0007 — [!] Proposed, last touched 2024-12-01 (>90 days) — likely abandoned
+  ADR-0009 — [!] Missing section: ## Consequences
 
 CROSS-ADR FINDINGS
 ──────────────────
   Numbering gaps: ADR-0004, ADR-0005, ADR-0006, ADR-0008 — informational
   Duplicate numbers: none
-  Dangling supersede links: none
-
-  ✗ ADR-0003 says "Superseded by [ADR-0009](./0009-use-resend.md)" but
-    file 0009-use-resend.md doesn't exist (actual file: 0009-use-resend-for-transactional-email.md)
+  Dangling superseded-by links: none
+  Orphan supersede claims: none
 ```
 
 ### 3D. Audit "What Next" Prompt
@@ -490,7 +569,7 @@ Route to Phase 1, Phase 2, or exit.
 
 ## Phase 4: Final Report
 
-Already handled per-mode in Phase 1M, 2E, 3C.
+Already handled per-mode in Phase 1M, 2F, 3C.
 
 ---
 
@@ -508,9 +587,13 @@ Stop. Tell user to run init first.
 
 Refuse with an explanatory message. Ask user to change the title (slug). See Phase 1C.
 
-### Supersede target has unexpected Status line format
+### Supersede precondition failure
 
-The single-line edit fails because `old_string` doesn't match. Abort the Status update, leave the new ADR in place, tell the user the exact lines to change manually. See Phase 2D.
+Abort before writing any file. Report which precondition failed. See Phase 2C.
+
+### Supersede Edit fails after new ADR was written
+
+Report the inconsistency with exact manual remediation steps. See Phase 2E.
 
 ### Audit finds no ADRs
 
@@ -533,7 +616,7 @@ If the user cancels any required AskUserQuestion in Phase 1 or 2, do not write a
 
 ## Scope Boundaries — What scaffold-adr Never Does
 
-- Never edits an accepted ADR's content beyond the single Status-line update in Supersede mode.
+- Never edits an accepted ADR's content beyond the `status` and `superseded-by` frontmatter field updates in Supersede mode. The body is never modified.
 - Never edits a superseded or deprecated ADR.
 - Never deletes any ADR. (`tidy-scaffold` may delete the `0000-template.md` template only.)
 - Never reuses an ADR number.
