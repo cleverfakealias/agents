@@ -33,7 +33,9 @@ The skill refuses to run if `.agents/architecture/` does not exist. The architec
 
 Detect components from declarative sources (config files, IaC) first, code references second; write all three `.mmd` files in one pass.
 
-- Reads in this priority order: IaC (`terraform/`, `pulumi/`, `wrangler.toml`, `fly.toml`, `render.yaml`, `docker-compose.yml`, Kubernetes manifests) → manifests (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`) → code (env var references, route handlers, framework hints).
+- Reads in this priority order: IaC (`terraform/`, `pulumi/`, `wrangler.toml`, `fly.toml`, `render.yaml`, `docker-compose.yml`, Kubernetes manifests) → manifests (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, `*.csproj`, `mix.exs`, `Gemfile`) → code (env var references, route handlers, framework hints).
+- Polyglot detection covers **Node, TypeScript, Python, Java/Spring, .NET, Elixir, Go, Rust, Ruby** — the classification tables in the implementation doc map each ecosystem's deps to architecture roles.
+- Tier-1, Tier-2, and Tier-3 detection run in parallel via three Haiku sub-agents; the main agent merges and dedupes the results.
 - Tags every detected node with **confidence**: `(high)` for IaC, `(medium)` for deps/manifests, `(low)` for code-inferred.
 - Leaves `<!-- TODO: confirm with team -->` markers next to `(low)` nodes — never invents components.
 - Caps at **30 nodes per diagram** (matches `.agents/architecture/README.md` invariant). If detection exceeds, asks the user to split or narrow scope before writing.
@@ -63,6 +65,7 @@ Same detection as Auto, but presents one diagram at a time as a draft for confir
 Read existing `.mmd` files, compare to detected codebase state, produce a drift report. **Never writes.**
 
 - Reads YAML frontmatter from each `.mmd` (verifies `verified-against` SHA).
+- Freshness is git-based: uses `git log <verified-against>..HEAD` to count commits since the stamp; no reliance on file mtime (mtime resets on `git clone`).
 - Compares to current detection:
   - **System drift** — top-level deps in manifests without a node; nodes on the diagram referencing deps that no longer exist; new env vars like `*_API_KEY` / `*_URL` implying an external API not represented.
   - **Dataflow drift** — new middleware in the framework's request pipeline; cache or queue clients added/removed; auth middleware changes.
