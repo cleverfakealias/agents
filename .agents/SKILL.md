@@ -14,13 +14,19 @@ Scaffold the `.agents/` agent-standards directory and generate a customized `pro
 ## How to Use
 
 ### Standalone (New Repo)
+
+1. Copy this `.agents/` folder into your repo:
 ```bash
-# In the target repo root:
-# 1. Manually copy this .agents/ folder into your repo
-# 2. Open any file and read this SKILL.md
-# 3. Run the skill → choose auto-explore or manual
-# 4. The skill generates project_context.md and AGENTS.md
+# Linux / macOS:
+cp -r .agents/ /path/to/your-repo/.agents
+
+# Windows (PowerShell):
+Copy-Item -Recurse .agents C:\path\to\your-repo\.agents
 ```
+
+2. Open any file and read this `SKILL.md`.
+3. Run the skill — choose auto-explore or manual.
+4. The skill generates `project_context.md` and `AGENTS.md`.
 
 ### From Source
 If you maintain a central `.agents/` template, instruct users to:

@@ -24,12 +24,18 @@ A drop-in template for adding AI-agent standards to any repo. Hands every agent 
 
 ```bash
 # 1. Copy this folder into your target repo
+# Linux / macOS:
 cp -r .agents/ /path/to/your-repo/.agents
 
-# 2. Open .agents/SKILL.md in a Claude session and invoke the skill
-#    Claude detects your stack and generates project_context.md, AGENTS.md, llms.txt
+# Windows (PowerShell):
+Copy-Item -Recurse .agents C:\path\to\your-repo\.agents
+```
 
-# 3. Commit — AGENTS.md is the human+agent contract
+2. Open `.agents/SKILL.md` in a Claude session and invoke the skill.
+   Claude detects your stack and generates `project_context.md`, `AGENTS.md`, `llms.txt`.
+
+3. Commit — `AGENTS.md` is the human+agent contract.
+```bash
 cd /path/to/your-repo && git add AGENTS.md .agents/ llms.txt && git commit -m "Add agent standards"
 ```
 
