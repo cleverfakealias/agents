@@ -1,9 +1,19 @@
+---
+verified-against: <!-- git short SHA at time of generation -->
+verified-at: <!-- YYYY-MM-DD -->
+generated-by: <!-- scaffold-context (auto|guided) | hand-written -->
+---
+
 <!-- Nested AGENTS.md template.
      Place at the root of a meaningful directory (e.g. src/lib/auth/AGENTS.md).
      The AGENTS.md spec resolves nearest-ancestor wins — deeper files override shallower.
      Keep ≤30 lines. Only DELTAS from the repo-root AGENTS.md and global_core.md. Never restate universal rules. -->
 
-# <dir>/
+<!-- Frontmatter above tracks freshness. The audit mode of the scaffold-context skill compares
+     verified-against to the current commit and flags this file as stale if the directory has
+     changed substantially since. Hand-written files: set generated-by: hand-written. -->
+
+# <!-- dir name, e.g. src/lib/auth -->/
 
 ## Purpose
 

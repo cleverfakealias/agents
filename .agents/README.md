@@ -22,8 +22,11 @@ Source of truth for AI agent behavior across this repo. Automatically scaffolds 
 │   ├── cursor.md               ← Cursor (Composer, Tab, Chat, Background Agents)
 │   └── windsurf.md             ← Windsurf (Cascade agent, Flows, Tab, Chat)
 └── skills/
-    └── blueprint/
-        ├── SKILL.md            ← skill: plan features → decompose into intents
+    ├── blueprint/
+    │   ├── SKILL.md            ← skill: plan features → decompose into intents
+    │   └── SKILL-implementation.md
+    └── scaffold-context/
+        ├── SKILL.md            ← skill: scaffold + audit nested AGENTS.md
         └── SKILL-implementation.md
 ```
 
@@ -154,6 +157,18 @@ Two modes:
 - **Sync** — runs after intents ship; moves files between `open/` → `in-flight/` → `done/`, flags stale in-flight work, regenerates `AGENTS.md` if stale.
 
 Invoke it by reading `.agents/skills/blueprint/SKILL.md` in a Claude session, or using the `blueprint` skill name if installed as a Cowork plugin skill.
+
+#### skills/scaffold-context/
+**Per-directory context generation and freshness audit.** Solves the gap left by the init skill: it walks the codebase, ranks directories by local-invariant density (file count, naming patterns, public surfaces, churn), reads representative files in each, and writes meaningful nested `AGENTS.md` files — purpose, invariants, boundaries, and entry points already populated.
+
+Three modes:
+- **Auto** — score, synthesize, write in one pass. Caps at 12 candidates per run.
+- **Guided** — same scoring, but presents each draft via `AskUserQuestion` for confirm / edit / skip.
+- **Audit** — read-only freshness report. Compares each nested `AGENTS.md`'s `verified-against` SHA to current `HEAD`, flags stale or uncovered surfaces, and produces a coverage map of dirs with / without context. Never writes.
+
+Every generated file is stamped with YAML frontmatter (`verified-against`, `verified-at`, `generated-by`) — that's the freshness signal Audit mode reads.
+
+Invoke it by reading `.agents/skills/scaffold-context/SKILL.md` in a Claude session.
 
 ### shims/
 Model-specific overrides (≤50 lines each). Only include if the tool reads its own file or you need targeted changes. Never duplicate `global_core.md`.
