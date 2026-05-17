@@ -1,0 +1,12 @@
+{
+  "$schema": "https://code.claude.com/schemas/settings.json",
+  "_comment": "Personal overrides. Rename to settings.local.json and gitignore. Settings here override .claude/settings.json. Use this for personal allow-lists, your preferred model, auto-memory directory, etc.",
+  "autoMemoryEnabled": true,
+  "permissions": {
+    "allow": [
+      "Bash(pnpm *)",
+      "Bash(uv *)",
+      "Bash(cargo *)"
+    ]
+  }
+}

@@ -1,0 +1,105 @@
+description = "Interactive setup for the Gemini standards scaffold. Detects stack, fills AGENTS.md, prunes commands the project doesn't need. Use when user first drops the scaffold in a repo, says 'set up Gemini standards' / 'init AGENTS.md' / 'configure this repo for Gemini' / 'scaffold .gemini/', or shows up in a fresh checkout with the scaffold copied in."
+
+prompt = """
+You are setting up the Gemini CLI standards scaffold that was just dropped into this repo. Files to customize: `AGENTS.md`, `GEMINI.md` (optional), `.gemini/settings.json`, `.gemini/commands/`.
+
+## Hard rules (apply to every step)
+
+- **Never read** `.env`, `.env.*`, `.envrc`, `.dev.vars*`, `secrets.*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `id_rsa*`, `.npmrc`, `.pypirc`. The `.geminiignore` in this scaffold already blocks them; double-check before any file read.
+- **Variable names** may be inferred from non-secret source files. **Values never.**
+- **Don't invent values.** Unknown placeholders stay as `<!-- ... -->` and surface in the final report.
+
+## Step 1 — Detect stack
+
+In parallel, look for:
+
+- `package.json`, `pnpm-workspace.yaml`, `turbo.json`, `nx.json`
+- `pyproject.toml`, `uv.lock`, `requirements.txt`
+- `Cargo.toml`, `go.mod`, `Gemfile`, `composer.json`, `pom.xml`, `build.gradle*`
+- `tsconfig.json`, `astro.config.*`, `next.config.*`, `vite.config.*`, `wrangler.toml`
+
+Current repo signals:
+
+```
+!{ls -1 package.json pyproject.toml Cargo.toml go.mod tsconfig.json 2>/dev/null || true}
+```
+
+Extract: project name, purpose, runtime version, framework, top 3-5 deps, install/dev/test/lint/typecheck/build commands.
+
+## Step 2 — Confirm with user
+
+Ask in plain conversation:
+
+1. Confirm detected identity — name, purpose, owner.
+2. Keep `GEMINI.md` or delete it? (Delete if no Gemini-specific instructions; AGENTS.md covers cross-tool.)
+3. Which commands to keep:
+   - `/git:commit` — generates commit message from staged diff
+   - `/test:run` — runs tests for a package and triages failures
+   - `/review` — reviews current branch diff
+4. MCP servers — keep `github`? Add others? Remove?
+5. Sandbox preference — `docker` (default), `podman`, `sandbox-exec` (macOS), `runsc`, or off?
+
+## Step 3 — Fill AGENTS.md
+
+Edit the `## Project Context` block at the bottom. Replace placeholders with detected + user values:
+
+- `### Identity` block: name, purpose, owner.
+- `### Stack` block: runtime, framework, language.
+- `### Commands` code block: install, test, lint, build from detected scripts.
+
+Cap AGENTS.md at ~250 lines.
+
+## Step 4 — Customize settings.json
+
+`.gemini/settings.json`:
+- Set `tools.sandbox` to user's choice.
+- For each kept MCP server, verify the env var name in `env:` matches the user's actual var (don't invent new ones).
+- Remove MCP servers the user opted out of.
+
+## Step 5 — Prune commands
+
+For each command the user opted out of, delete the file:
+
+- `/git:commit` → `.gemini/commands/git/commit.toml`
+- `/test:run` → `.gemini/commands/test/run.toml`
+- `/review` → `.gemini/commands/review.toml`
+
+Remove empty subfolders.
+
+## Step 6 — Delete this command
+
+This `/init` exists only for first-time setup. After successful completion, delete `.gemini/commands/init.toml`. Confirm with the user first.
+
+## Step 7 — Report
+
+```
+✅ Gemini scaffold initialized.
+
+Files filled:
+  - AGENTS.md (<line count> lines)
+  - .gemini/settings.json
+  - GEMINI.md  [kept | deleted]
+
+Active commands:
+  <list>
+
+MCP servers active: <list>
+Sandbox: <value>
+
+Open TODOs (placeholders remaining):
+  <list any `<!-- ... -->` still in AGENTS.md>
+
+Next steps:
+  1. Copy .gemini/.env.example to .gemini/.env, fill in values, and gitignore the real .env.
+  2. Commit: git add AGENTS.md GEMINI.md .gemini/ && git commit -m \"Add Gemini standards\"
+  3. (If Docker sandbox) Verify Docker is running: docker ps
+```
+
+## Error handling
+
+- **Existing AGENTS.md with non-placeholder content**: ask before overwriting. Offer merge / replace (`.bak`) / skip.
+- **No stack detected**: switch to manual mode — ask name, language, commands.
+- **Monorepo detected**: ask whether to scaffold root-only or per-package. Default root-only; per-package can use nested `<pkg>/GEMINI.md` for JIT loading.
+
+User context: {{args}}
+"""

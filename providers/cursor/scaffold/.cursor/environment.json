@@ -1,0 +1,12 @@
+{
+  "_comment": "Cursor Background / Cloud Agent environment. Adjust install/start/terminals per your project. Secrets go in the Secrets tab at cursor.com/dashboard/cloud-agents, never in this file.",
+  "install": "pnpm install --frozen-lockfile",
+  "terminals": [
+    {
+      "name": "dev",
+      "command": "pnpm dev",
+      "ports": [3000]
+    }
+  ],
+  "persistedDirectories": ["node_modules", ".next/cache"]
+}

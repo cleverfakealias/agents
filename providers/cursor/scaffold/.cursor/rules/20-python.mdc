@@ -1,0 +1,27 @@
+---
+description: Python style and safety rules — auto-attaches when editing or reading .py files.
+globs: **/*.py
+alwaysApply: false
+---
+
+# Python
+
+- Type hints on every function signature, return type, and class attribute.
+- `Any` requires inline `# type: ignore[reason] — <why>` or a justifying comment.
+- Prefer `dataclasses` (`frozen=True` where possible) or `pydantic` over dict-as-record.
+- Imports order: stdlib, third-party, local. Group with blank lines.
+- `pathlib.Path` over `os.path`.
+- Async: `async def` with `await`. Use `asyncio.gather` for independent concurrent work. Never `time.sleep` inside `async`.
+- Errors: never bare `except:`. Catch specific exception types. Re-raise with `from e` to preserve cause.
+
+## Modern Python idioms (3.11+)
+
+- `match`/`case` for tagged unions, not for `if`/`else` chains.
+- `Self` from `typing` over `TypeVar` for fluent builders.
+- `StrEnum` / `IntEnum` for typed enums.
+
+## Suppress these tendencies
+
+- Don't catch `Exception` to make tests pass — narrow it.
+- Don't silence `mypy` without a reason comment.
+- Don't `pip install` a 500KB library when a 5-line helper suffices.

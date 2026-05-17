@@ -4,36 +4,45 @@
 # Spec reference: https://llmstxt.org
 
 project: agents
-description: AI agent standards template — global rules, model shims, and an init skill that scaffolds .agents/ + AGENTS.md + llms.txt into any target repo.
+description: A collection of per-provider AI agent scaffolds — one folder per provider, each using that provider's native idioms end-to-end (Claude Code, GitHub Copilot, Cursor, Gemini CLI, OpenAI Codex, Windsurf).
 language: Markdown
-framework: n/a (template repo)
+framework: n/a (template repo — no build pipeline)
 runtime: n/a
 
-# --- Agent Instructions ---
+# --- Repo Structure ---
 
-system-prompt-dir: .agents/
-global-rules: .agents/global_core.md
-project-context: .agents/project_context.md     # dogfooded for this repo; the skill generates this per target repo
-shim-claude: .agents/shims/claude.md
-shim-openai: .agents/shims/openai.md
-shim-gemini: .agents/shims/gemini.md
-shim-copilot: .agents/shims/copilot.md
-shim-cursor: .agents/shims/cursor.md
-shim-windsurf: .agents/shims/windsurf.md
-assembly-order: shim + global_core + project_context
+readme: README.md
+shared-principles: shared/principles.md
+providers-root: providers/
 
-# --- Key Locations ---
+provider-claude: providers/claude/
+provider-copilot: providers/copilot/
+provider-cursor: providers/cursor/
+provider-gemini: providers/gemini/
+provider-codex: providers/codex/
+provider-windsurf: providers/windsurf/
 
-skill-entry: .agents/SKILL.md
-skill-implementation: .agents/SKILL-implementation.md
-templates: .agents/project_context.template.md, .agents/llms-template.txt
-docs: .agents/README.md
+# Each provider folder contains: README.md, docs/best-practices.md, docs/anti-patterns.md, scaffold/
 
-# --- Do Not Modify ---
+# --- Source of Truth ---
 
-do-not-touch: .agents/global_core.md (universal rules — change with care), .agents/shims/*.md (model contracts)
+canonical-principles: shared/principles.md
+# Each provider's scaffold expresses these principles in its own native idiom.
+# Change principles.md and sweep every providers/<name>/scaffold/ in lockstep.
+
+# --- Legacy ---
+
+legacy-dir: legacy/.agents/
+legacy-readme: legacy/README.md
+# Pre-split multi-provider scaffold. Preserved for migration reference. Not maintained.
+
+# --- This Repo's Own Contract ---
+
+# This repo is dogfooded — it uses one of its own scaffolds for the meta-project.
+agents-md: AGENTS.md
+claude-md: CLAUDE.md
 
 # --- Secrets Policy ---
 
-secrets-policy: This repo holds no secrets. Templates reference env var NAMES only — never values.
+secrets-policy: This repo holds no secrets and must never. Scaffolds reference env var NAMES only.
 agent-no-read: .env, .env.*, .envrc, .dev.vars*, secrets.*, *.pem, *.key, *.p12, *.pfx, id_rsa*, .npmrc, .pypirc, ~/.aws/credentials, ~/.config/gcloud/, gha-creds-*.json, .terraformrc

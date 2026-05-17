@@ -1,0 +1,49 @@
+# Patterns to exclude from JIT context loading and file-tool reads.
+# Separate from .gitignore — useful for blocking generated dirs that ARE checked in
+# but you don't want Gemini wandering into.
+
+node_modules/
+dist/
+build/
+.next/
+.astro/
+.wrangler/
+.vercel/
+.turbo/
+target/
+__pycache__/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+coverage/
+.nyc_output/
+
+# Lockfiles — large, low signal
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+bun.lockb
+Cargo.lock
+poetry.lock
+uv.lock
+
+# Generated artifacts
+*.min.js
+*.min.css
+*.map
+
+# Secrets — defense in depth (settings.json should already block these via toolSandboxing)
+.env
+.env.*
+.envrc
+.dev.vars*
+secrets.*
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+.npmrc
+.pypirc
