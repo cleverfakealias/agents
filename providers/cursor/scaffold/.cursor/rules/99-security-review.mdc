@@ -1,0 +1,49 @@
+---
+alwaysApply: false
+---
+
+# Security Review (manual — invoke with @99-security-review)
+
+Heavyweight security pass. Invoked explicitly by the user when reviewing auth, input handling, query construction, or crypto code. Don't auto-attach this; it would burn tokens on every turn.
+
+## What to look for
+
+### Injection
+- **SQL**: string-concatenated queries, missing parameterization, dynamic table/column names from user input.
+- **HTML/JS**: `innerHTML`, `dangerouslySetInnerHTML`, unescaped template interpolation server-side.
+- **Shell**: `exec` / `spawn` / `os.system` / `subprocess.run(shell=True)` with user input.
+- **Path traversal**: user-controlled paths joined without normalization + allowlist.
+
+### AuthN / AuthZ
+- New routes without an auth check.
+- Authz check after the action (TOCTOU).
+- Role/permission strings hardcoded vs. centralized policy.
+- Tokens accepted from query string or referer.
+
+### Secrets
+- Hardcoded keys, tokens, URLs (especially in test fixtures).
+- Env vars logged.
+- Secrets in error messages.
+
+### Input handling
+- Validation only on client.
+- Allow-list vs. deny-list confusion (deny-lists almost always have gaps).
+- File uploads without MIME + extension + size checks.
+
+### Crypto
+- Custom crypto (banned). ECB mode, fixed IVs.
+- Weak password hashing (MD5/SHA1/unsalted SHA256). Use Argon2id, bcrypt, or scrypt.
+- `Math.random` / `random.random()` for security — use `crypto.randomBytes` / `secrets`.
+
+### SSRF & CORS
+- Server fetches user-controlled URLs without allowlist + redirect handling.
+- `Access-Control-Allow-Origin: *` on credentialed endpoints.
+
+### Deserialization
+- `pickle.loads`, `yaml.load` (without `SafeLoader`), `eval`, `Function(string)`.
+
+## Output
+
+One line per finding: `severity: file:line — issue — fix`.
+Severities: CRITICAL / HIGH / MEDIUM / LOW.
+End with: `Verdict: BLOCK | REQUEST CHANGES | OK`.

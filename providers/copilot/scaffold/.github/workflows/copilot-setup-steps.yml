@@ -1,0 +1,55 @@
+# Cloud Copilot coding agent environment setup.
+# Job name MUST be `copilot-setup-steps`. Only `steps`, `permissions`, `runs-on`,
+# `services`, `snapshot`, `timeout-minutes` (≤59) are honored. Ubuntu x64 / Windows 64 only.
+#
+# Replace placeholders during `/init-copilot-standards`.
+name: "Copilot Setup Steps"
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6
+
+      # Node toolchain — adjust node-version to match engines.node
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      # Python toolchain (uncomment if Python is used)
+      # - uses: actions/setup-python@v5
+      #   with:
+      #     python-version: "3.13"
+
+      # Install dependencies. Swap to pnpm install --frozen-lockfile / uv sync as needed.
+      - name: Install dependencies
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            npm install -g pnpm
+            pnpm install --frozen-lockfile
+          elif [ -f package-lock.json ]; then
+            npm ci
+          elif [ -f uv.lock ]; then
+            pip install uv
+            uv sync
+          elif [ -f Cargo.toml ]; then
+            cargo fetch
+          fi
+
+      # Cache build artifacts the agent commonly reads
+      - name: Warm typecheck cache (optional)
+        run: |
+          if [ -f tsconfig.json ]; then
+            npx tsc --noEmit || true
+          fi

@@ -1,0 +1,15 @@
+---
+alwaysApply: true
+---
+
+# House Rules (always-on)
+
+- Never edit generated files: `dist/`, `build/`, `.next/`, `target/`, `__pycache__/`, `node_modules/`.
+- Never edit lockfiles: `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `Cargo.lock`, `poetry.lock`, `uv.lock`. Regenerate via the package manager.
+- Never read secret files: `.env*`, `.envrc`, `.dev.vars*`, `secrets.*`, `*.pem`, `*.key`, `id_rsa*`, `.npmrc`, `.pypirc`.
+- Reference env var **names** only — never paste secret values.
+- One logical change per commit. Conventional Commits format.
+- Never `git push`, `npm publish`, deploy, or `--force` operations without explicit user instruction.
+- Scope lock: modify only files the task requires. No drive-by cleanup.
+- If `CONTEXT.md` exists at the repo root, read it before using project terms — and update it inline when a term is sharpened (one sentence per term, surface aliases-to-avoid).
+- If `docs/adr/` exists, read ADRs relevant to the area you're touching; don't re-litigate decisions. Offer a new ADR only when the decision is hard to reverse, surprising without context, AND the result of a real trade-off.

@@ -1,0 +1,58 @@
+description = "Review the current branch diff against main for correctness, security, scope, and tests. Use when user says 'review this diff' / 'code review' / 'look over this branch' / 'any issues before I merge', or wants a pre-merge check."
+
+prompt = """
+Review the diff between the current branch and `main` (or `master`/`develop` if `main` is absent).
+
+## Diff
+
+Base ref:
+```
+!{git remote show origin 2>/dev/null | grep 'HEAD branch' | awk '{print $NF}' || echo main}
+```
+
+Full diff (capped at 800 lines for the first pass):
+```diff
+!{git diff $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD | head -n 800}
+```
+
+Files changed:
+```
+!{git diff --stat $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD}
+```
+
+## Standards
+
+@{AGENTS.md}
+
+## What to check
+
+- **Correctness** — does the code do what the PR claims? Mental-simulate edge cases (null, empty, max, concurrent).
+- **Edit discipline** — scope creep, drive-by refactors, cosmetic churn, new deps without justification.
+- **Types** — `any`, unjustified casts, swallowed errors.
+- **Async** — floating promises, sequential awaits where parallel fits.
+- **Security** — input validation at boundaries, injection sinks, secrets in code, unsafe deserialization, SSRF, missing authz.
+- **Tests** — new code paths covered? Tests assert behavior, not implementation?
+- **Migrations** (if SQL/Prisma/Alembic touched) — reversible? Concurrent-safe? Two-step for destructive ops?
+
+## Output
+
+```
+## Summary
+<one sentence — verdict + most important finding>
+
+## Findings
+
+<severity>: <file:line> — <issue> — <fix>
+<severity>: <file:line> — <issue> — <fix>
+...
+
+## Verdict
+BLOCK | REQUEST CHANGES | OK
+```
+
+Severities: BLOCKER (must fix), MAJOR (should fix), MINOR (nice to fix), NIT (preference).
+
+Cap at 30 findings. No praise. No restating the diff.
+
+User context (focus areas, specific concerns): {{args}}
+"""

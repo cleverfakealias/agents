@@ -1,0 +1,42 @@
+{
+  "$schema": "https://geminicli.com/schemas/settings.json",
+  "model": { "name": "gemini-2.5-pro" },
+  "context": {
+    "fileName": ["AGENTS.md", "GEMINI.md"]
+  },
+  "tools": {
+    "sandbox": "docker",
+    "excludeTools": [
+      "run_shell_command(rm -rf)",
+      "run_shell_command(git push --force)",
+      "run_shell_command(npm publish)",
+      "run_shell_command(pnpm publish)",
+      "run_shell_command(cargo publish)"
+    ]
+  },
+  "security": {
+    "toolSandboxing": true
+  },
+  "checkpointing": {
+    "enabled": true
+  },
+  "fileFiltering": {
+    "respectGitIgnore": true,
+    "respectGeminiIgnore": true
+  },
+  "chatCompression": {
+    "contextPercentageThreshold": 0.6
+  },
+  "telemetry": { "enabled": false },
+  "usageStatisticsEnabled": false,
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": { "GITHUB_TOKEN": "$GITHUB_TOKEN" },
+      "timeout": 600000,
+      "trust": false,
+      "includeTools": ["create_pr", "list_issues", "get_pr_diff", "list_repos"]
+    }
+  }
+}
