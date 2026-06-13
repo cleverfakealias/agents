@@ -15,7 +15,7 @@ else
 fi
 [[ -z "${url}" ]] && exit 0
 
-host=$(printf '%s' "${url}" | sed -E 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##; s#[/:?].*$##' | tr 'A-Z' 'a-z')
+host=$(printf '%s' "${url}" | sed -E 's#^[a-zA-Z][a-zA-Z0-9+.-]*://##; s#[/:?].*$##' | tr '[:upper:]' '[:lower:]')
 [[ -z "${host}" ]] && exit 0
 
 allowlist="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude/hooks/allowed-domains.txt"
@@ -25,7 +25,7 @@ if [[ ! -f "${allowlist}" ]]; then
 fi
 
 while IFS= read -r domain; do
-  domain=$(printf '%s' "${domain}" | tr -d '[:space:]' | tr 'A-Z' 'a-z')
+  domain=$(printf '%s' "${domain}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
   [[ -z "${domain}" || "${domain}" == \#* ]] && continue
   if [[ "${host}" == "${domain}" || "${host}" == *".${domain}" ]]; then
     exit 0

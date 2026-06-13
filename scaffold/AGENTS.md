@@ -57,4 +57,17 @@ busted                  # tests (spec/*_spec.lua)
   packages, commit the lockfile change, keep install scripts disabled.
 - No one-off remote package execution (`npx`/`uvx`/`pnpm dlx`) outside the
   approved list; no fetching web content outside the approved domain list.
-  Both lists live in `.claude/hooks/` a
+  Both lists live in `.claude/hooks/` and are edited by humans only.
+- Never modify agent policy files (`.claude/settings*`, `.claude/hooks/`,
+  `.mcp.json`, `.git/` internals) or CI workflows without explicit user
+  direction.
+- Validate external input at boundaries (Pydantic / zod). No `eval`-family
+  calls on external data.
+
+## Boundaries
+
+<!-- List paths agents must not touch, e.g.:
+- `migrations/` — append-only; never edit an applied migration
+- `vendor/` — generated; regenerate, don't hand-edit
+-->
+- `.git/` internals.

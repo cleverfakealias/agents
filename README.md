@@ -92,4 +92,41 @@ policy — hooks and deny rules are advisory layers above it.
 
 - `.claude/hooks/allowed-domains.txt` — domains Claude may WebFetch.
 - `.claude/hooks/allowed-run-packages.txt` — packages runnable via
-  `npx`/`uv
+  `npx`/`uvx`/`pnpm dlx`.
+
+Edit these by hand as needs come up; the agent is deliberately blocked from
+editing them itself.
+
+### 6. Verify it works
+
+Open Claude Code in the repo and ask it to make a small change to a Python,
+TS, or Lua file. You should see: the file comes back formatted; lint problems
+get fixed without being asked; and when Claude finishes, the test suite runs
+for whatever changed. Then ask it to `cat .env` — it should refuse with a
+hook message. That's the whole system working.
+
+### Day-to-day
+
+- Hooks self-disable when a tool isn't installed (no ruff → Python hook
+  no-ops), so the scaffold drops into Python-only, TS-only, mixed, or
+  greenfield repos unchanged.
+- `CLAUDE_SKIP_STOP_TESTS=1 claude` skips the test-on-stop hook for a session.
+- `/security-review` before merging significant changes; `/commit-and-push`
+  for guarded commits.
+- Using another agent? `AGENTS.md` is read natively by almost everything —
+  see [providers.md](providers.md) for per-tool setup and gotchas.
+
+## Toolchain assumptions (June 2026)
+
+Python: **uv** + **ruff 0.15** + **pytest 9** (mypy/pyright as typecheck gate; ty when stable).
+TypeScript: **pnpm 11** + **Biome 2.4** + **tsc --noEmit** (tsgo as drop-in) + **vitest**.
+Lua: **StyLua 2.x** + **selene** (luacheck legacy) + **busted** (LuaLS `--check` advisory).
+Security: layered — deny rules (first line), guard hooks (reliable enforcement:
+secret reads/writes, destructive commands, policy-file self-modification, WebFetch
+domain allowlist, npx/uvx gating), OS sandbox with network allowlist (real
+boundary). Plus: `disableBypassPermissionsMode`, lockfile-frozen installs,
+dependency cooldowns left on, external content treated as untrusted (OWASP
+Agentic Top 10).
+
+Older multi-provider scaffolds (Claude/Copilot/Cursor/Gemini/Codex/Windsurf,
+plus the legacy `.agents/` system) live in git history before June 2026.
