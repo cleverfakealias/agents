@@ -25,6 +25,7 @@ deny() {
 }
 
 # ── destructive operations ────────────────────────────────────────────────────
+# shellcheck disable=SC2016  # regex literal; $HOME/$ are pattern syntax, not expansions
 re_rm_critical='rm[[:space:]]+-[a-zA-Z]*[rR][a-zA-Z]*[[:space:]]+(/|~|\$HOME|\.|\.git)([[:space:]]|$|/)'
 re_force_push='git[[:space:]]+push[[:space:]].*(--force|[[:space:]]-f)([[:space:]]|$)'
 re_force_lease='--force-with-lease'

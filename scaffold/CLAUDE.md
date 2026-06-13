@@ -10,10 +10,25 @@ Automation in this repo (configured in `.claude/settings.json`):
 - **When you finish a turn**, a Stop hook runs the typecheck and tests for any
   Python/TS/Lua files changed this session (pytest / tsc+vitest / busted). If it
   blocks you, fix the failures; it won't loop (it lets you stop on the second attempt).
+- **At session start and end**, a cleanup hook removes git worktrees under
+  `.claude/worktrees/` that are safe to delete (clean tree + commits already
+  preserved elsewhere) and reports any holding unsaved work instead of deleting
+  them. `.claude/worktrees/` is gitignored. Disable with
+  `CLAUDE_SKIP_WORKTREE_CLEANUP=1`.
 - **Guard hooks** block: writes to secret files; shell reads of secrets
   (`cat .env`, `~/.ssh`, etc.); env dumps (`printenv`); destructive commands;
   editing policy files (`.claude/settings*`, hooks, `.mcp.json`, `.git/`,
   CI workflows); WebFetch outside `.claude/hooks/allowed-domains.txt`; and
   npx/uvx/pnpm-dlx for packages not in `.claude/hooks/allowed-run-packages.txt`.
   If a guard blocks you, that's policy — tell the user instead of working
- 
+  around it. The allowlist files are edited by the user only.
+
+Skills: `python-standards`, `typescript-standards`, and `lua-standards` load
+when relevant;
+`/security-review` for audits; `/commit-and-push` is user-invoked only.
+For large reviews, delegate to the `security-reviewer` subagent.
+
+Sandbox: copy `.claude/settings.local.json.example` to
+`.claude/settings.local.json` to enable OS-level sandboxing with a network
+allowlist — it's the real security boundary; deny rules and hooks are the
+layers above it.
