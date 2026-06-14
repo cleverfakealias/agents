@@ -4,6 +4,10 @@
 
 Automation in this repo (configured in `.claude/settings.json`):
 
+- **Before each prompt**, a `UserPromptSubmit` gate (`spec-gate.mjs`) nudges
+  implementation-looking prompts toward a spec when none exists — Zenn mode (see
+  AGENTS.md). It never blocks; questions, opt-out phrases ("quick fix", "no
+  spec"), and existing specs pass silently. Disable with `CLAUDE_SKIP_SPEC_GATE=1`.
 - **On every Write/Edit** a hook auto-formats and lints the file (ruff / biome /
   stylua+selene). If it reports remaining issues, fix them before moving on —
   don't disable the hook.
@@ -23,10 +27,10 @@ Automation in this repo (configured in `.claude/settings.json`):
   If a guard blocks you, that's policy — tell the user instead of working
   around it. The allowlist files are edited by the user only.
 
-Skills: `python-standards`, `typescript-standards`, and `lua-standards` load
-when relevant;
-`/security-review` for audits; `/commit-and-push` is user-invoked only.
-For large reviews, delegate to the `security-reviewer` subagent.
+Skills: `python-standards`, `typescript-standards`, `lua-standards`, and
+`zenn-mode` load when relevant; `/zenn` and `/spec` start intent-driven work
+explicitly; `/security-review` for audits; `/commit-and-push` is user-invoked
+only. For large reviews, delegate to the `security-reviewer` subagent.
 
 Sandbox: copy `.claude/settings.local.json.example` to
 `.claude/settings.local.json` to enable OS-level sandboxing with a network

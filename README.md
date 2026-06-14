@@ -19,6 +19,8 @@ scaffold/                      ← copy this into your repo
     ├── settings.json          permissions (secret-read denials, no force-push,
     │                          no publish) + hook wiring
     ├── hooks/
+    │   ├── spec-gate.mjs            UserPromptSubmit: Zenn-mode nudge — impl prompts
+    │   │                            with no spec get a firm (never blocking) spec-first nudge
     │   ├── format-and-lint.mjs      PostToolUse: ruff / biome / stylua+selene on
     │   │                            every file Claude edits; unfixable issues are
     │   │                            fed back to Claude to fix
@@ -39,8 +41,12 @@ scaffold/                      ← copy this into your repo
     │   ├── python-standards/        uv + ruff + pytest + typing + security
     │   ├── typescript-standards/    pnpm + biome + tsc + vitest + security
     │   ├── lua-standards/           stylua + selene + busted + LuaLS + security
+    │   ├── zenn-mode/               intent-driven dev (spec → blueprint → tasks → state)
     │   ├── security-review/         OWASP-agentic-aware review checklist
     │   └── commit-and-push/         user-invoked only; scans for secrets first
+    ├── commands/
+    │   ├── zenn.md                  /zenn — activate Zenn mode explicitly
+    │   └── spec.md                  /spec — generic spec-and-test-driven cycle
     ├── agents/
     │   └── security-reviewer.md     read-only audit subagent
     └── settings.local.json.example  OS sandbox + network allowlist (copy to
@@ -113,6 +119,8 @@ hook message. That's the whole system working.
 - `CLAUDE_SKIP_STOP_TESTS=1 claude` skips the test-on-stop hook for a session.
 - `/security-review` before merging significant changes; `/commit-and-push`
   for guarded commits.
+- `/zenn` or `/spec` to start intent-driven work; the spec-gate hook nudges you
+  there automatically. `CLAUDE_SKIP_SPEC_GATE=1 claude` turns the nudge off.
 - Using another agent? `AGENTS.md` is read natively by almost everything —
   see [providers.md](providers.md) for per-tool setup and gotchas.
 
