@@ -19,20 +19,20 @@ scaffold/                      ← copy this into your repo
     ├── settings.json          permissions (secret-read denials, no force-push,
     │                          no publish) + hook wiring
     ├── hooks/
-    │   ├── format-and-lint.sh       PostToolUse: ruff / biome / stylua+selene on
+    │   ├── format-and-lint.mjs      PostToolUse: ruff / biome / stylua+selene on
     │   │                            every file Claude edits; unfixable issues are
     │   │                            fed back to Claude to fix
-    │   ├── run-tests-on-stop.sh     Stop: typecheck + tests for files changed this
+    │   ├── run-tests-on-stop.mjs    Stop: typecheck + tests for files changed this
     │   │                            session (pytest / tsc+vitest / busted); failures
     │   │                            block Claude from finishing until fixed
-    │   ├── block-secret-writes.sh   PreToolUse: no writes to .env/keys/creds or
+    │   ├── block-secret-writes.mjs  PreToolUse: no writes to .env/keys/creds or
     │   │                            policy files (.claude/settings, hooks, .mcp.json)
-    │   ├── block-destructive-bash.sh PreToolUse: no rm -rf /, force push, curl|sh;
+    │   ├── block-destructive-bash.mjs PreToolUse: no rm -rf /, force push, curl|sh;
     │   │                            no shell reads of secrets (cat .env, ~/.ssh —
     │   │                            the Bash bypass of Read deny rules); no env
     │   │                            dumps; no policy-file edits; npx/uvx/pnpm-dlx
     │   │                            gated to allowed-run-packages.txt
-    │   ├── webfetch-allowlist.sh    PreToolUse: WebFetch only to domains in
+    │   ├── webfetch-allowlist.mjs   PreToolUse: WebFetch only to domains in
     │   │                            allowed-domains.txt (prompt-injection front door)
     │   └── allowed-domains.txt / allowed-run-packages.txt   human-edited allowlists
     ├── skills/
@@ -55,12 +55,12 @@ providers.md                   ← gotchas for Cursor / Copilot / Codex / Gemini
 ```bash
 cp -r /path/to/agents/scaffold/. /path/to/your-repo/
 cd /path/to/your-repo
-chmod +x .claude/hooks/*.sh
 ```
 
 (`cp -r scaffold/.` — the trailing `/.` matters: it copies the *contents*,
-including the dot-directories.) On Windows, run this from Git Bash — the hooks
-are bash scripts, which Claude Code executes via Git Bash on Windows.
+including the dot-directories.) The hooks are Node scripts (`.mjs`) invoked via
+`node`, so they run identically on Windows, macOS, and Linux — Node on PATH is
+the only requirement (no exec bit, no Git Bash).
 
 ### 2. Fill in AGENTS.md
 
@@ -121,6 +121,7 @@ hook message. That's the whole system working.
 Python: **uv** + **ruff 0.15** + **pytest 9** (mypy/pyright as typecheck gate; ty when stable).
 TypeScript: **pnpm 11** + **Biome 2.4** + **tsc --noEmit** (tsgo as drop-in) + **vitest**.
 Lua: **StyLua 2.x** + **selene** (luacheck legacy) + **busted** (LuaLS `--check` advisory).
+Hooks: **Node** (`.mjs`, run via `node`) — cross-platform, the one runtime the scaffold itself requires.
 Security: layered — deny rules (first line), guard hooks (reliable enforcement:
 secret reads/writes, destructive commands, policy-file self-modification, WebFetch
 domain allowlist, npx/uvx gating), OS sandbox with network allowlist (real

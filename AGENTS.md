@@ -14,9 +14,9 @@ copied into target repos, never executed here.
   `scaffold/CLAUDE.md` ≤50, skills ≤90.
 - Placeholders are HTML comments (`<!-- ... -->`); substitution replaces the
   whole comment. No realistic-looking secrets anywhere — use `EXAMPLE_API_KEY`.
-- Hook scripts must pass `bash -n` and `shellcheck`, handle missing tools
-  gracefully (exit 0, never crash the session), and only exit 2 with
-  actionable stderr.
+- Hook scripts are cross-platform Node (`.mjs`, run via `node`) and must pass
+  `node --check`, handle missing tools gracefully (exit 0, never crash the
+  session), and only exit 2 with actionable stderr.
 - One logical change per commit, conventional commit messages.
 
 ## Smoke test
