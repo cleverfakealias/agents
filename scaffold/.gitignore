@@ -2,3 +2,8 @@
 # Merge (append) these lines into an existing repo .gitignore; don't overwrite.
 .claude/worktrees/
 .claude/settings.local.json
+
+# Recurring agent scratch / generated files (2026-06-22)
+UPGRADE_INTENT.md
+lint_output.*
+*local-test-screenshot*

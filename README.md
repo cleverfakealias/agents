@@ -36,6 +36,10 @@ scaffold/                      ← copy this into your repo
     │   │                            gated to allowed-run-packages.txt
     │   ├── webfetch-allowlist.mjs   PreToolUse: WebFetch only to domains in
     │   │                            allowed-domains.txt (prompt-injection front door)
+    │   ├── cleanup-worktrees.mjs    SessionStart + Stop: commit each .claude/worktrees
+    │   │                            worktree's WIP onto its branch (secrets excluded),
+    │   │                            then remove the worktree — work is kept on a branch
+    │   │                            to resume later, so worktree dirs never pile up
     │   └── allowed-domains.txt / allowed-run-packages.txt   human-edited allowlists
     ├── skills/
     │   ├── python-standards/        uv + ruff + pytest + typing + security
@@ -117,6 +121,14 @@ hook message. That's the whole system working.
   no-ops), so the scaffold drops into Python-only, TS-only, mixed, or
   greenfield repos unchanged.
 - `CLAUDE_SKIP_STOP_TESTS=1 claude` skips the test-on-stop hook for a session.
+- **Worktrees are disposable; the work isn't.** Anything under `.claude/worktrees/`
+  is treated as scratch. On session start/stop the `cleanup-worktrees` hook commits
+  each worktree's uncommitted work onto its branch as a `chore(wip):` commit (secrets
+  like `.env`/keys are never committed), then removes the worktree. Resume later with
+  `git worktree add .claude/worktrees/<name> <branch>` (and `git reset --soft HEAD~1`
+  if you'd rather un-WIP the commit). Escape hatches: `CLAUDE_WORKTREE_NO_AUTOCOMMIT=1`
+  keeps dirty worktrees in place and only reports them; `CLAUDE_SKIP_WORKTREE_CLEANUP=1`
+  disables the hook entirely.
 - `/security-review` before merging significant changes; `/commit-and-push`
   for guarded commits.
 - `/zenn` or `/spec` to start intent-driven work; the spec-gate hook nudges you
