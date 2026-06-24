@@ -44,6 +44,18 @@ busted                  # tests (spec/*_spec.lua)
   messages (`feat:`, `fix:`, `refactor:`, ...).
 - Tests accompany behavior changes. Bug fix → regression test first.
 
+## Development workflow — Zenn mode
+
+Significant implementation work is intent-driven: capture intent before code,
+expand it into a blueprint, execute against a tracked task list, and preserve
+state across sessions. Specs live in `specs/` — a single `specs/<slug>.md`
+(Intent, Approach, Tasks, Notes) for small work; the four-file set
+(`requirements.md`, `plan.md`, `tasks.md`, `status.md`) under `specs/<slug>/`
+for big work. Wait for an approved blueprint before writing implementation code;
+when reality diverges, update the spec rather than diverging silently. Resuming
+work? Read `status.md` first, then `plan.md`, then continue from the next
+unchecked task. Quick fixes and exploratory questions don't need a spec.
+
 ## Security — non-negotiable
 
 - Never read, write, or print `.env*`, key files, or anything under `~/.ssh`,
