@@ -29,3 +29,6 @@ env/
 # Temp / scratch
 *.tmp
 *.bak
+
+# Claude Code per-machine settings
+.claude/settings.local.json

@@ -12,8 +12,10 @@ Stewarded by the Agentic AI Foundation under the Linux Foundation; spec at
 nearest-file-wins in monorepos. Read natively by Codex, Cursor, Copilot,
 VS Code, Devin, Zed, Jules, Warp, and most others.
 
-- **Claude Code does NOT read it natively** — hence the `@AGENTS.md` import in
-  `scaffold/CLAUDE.md`.
+- **Claude Code reads it natively (v2.1.277+), but only when no `CLAUDE.md`
+  exists** in the working directory or above. The scaffold ships a `CLAUDE.md`,
+  so it imports `@AGENTS.md` explicitly.
+  ([docs](https://code.claude.com/docs/en/memory#agents-md))
 - **Gemini CLI does NOT read it by default** — needs opt-in config (below).
 - "Supports AGENTS.md" varies: nested-file handling, layering, and caps differ
   per tool. Don't assume uniform behavior.
