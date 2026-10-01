@@ -17,10 +17,18 @@ copied into target repos, never executed here.
 - Hook scripts are cross-platform Node (`.mjs`, run via `node`) and must pass
   `node --check`, handle missing tools gracefully (exit 0, never crash the
   session), and only exit 2 with actionable stderr.
+- Keep the scaffold language-neutral and light on prescription. Prefer Claude
+  Code's built-in controls (permission rules, protected paths, sandbox) over
+  custom hooks that match command text.
 - One logical change per commit, conventional commit messages.
+
+## Tests
+
+`node --test` exercises `checks.mjs` and enforces the rules above (size limits,
+hook paths, rule syntax). Run it before committing.
 
 ## Smoke test
 
-Copy `scaffold/.` into a sample Python repo and a sample TypeScript repo, open
-Claude Code, edit a file, and verify: format/lint hook fires, Stop hook runs
-tests, secret/destructive guards block what they should.
+Copy `scaffold/.` into a sample repo, fill in `.claude/hooks/checks.json`, open
+Claude Code, edit a file, and verify: the format command fires, the Stop hook
+runs the verify commands, `.env` can't be read, and `git push` asks first.
