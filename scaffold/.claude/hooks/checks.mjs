@@ -1,0 +1,97 @@
+#!/usr/bin/env node
+// Project checks, driven by checks.json next to this file. Does nothing until that
+// file is filled in:
+//
+//   { "format": { "py": "ruff format {file}", "ts,tsx": "biome check --write {file}" },
+//     "verify": ["npm test"] }
+//
+//   node checks.mjs format   PostToolUse (Edit|Write): run the command configured for
+//                            the edited file's extension. {file} is the quoted path.
+//   node checks.mjs verify   Stop: if Claude edited files since the last passing run,
+//                            run the verify commands (tests, typecheck).
+//
+// Exit 0 = clean or nothing to do. Exit 2 = a check failed; stderr goes to Claude.
+// A command whose tool isn't installed is skipped, never an error.
+// CLAUDE_SKIP_CHECKS=1 turns both modes off for a session.
+// https://code.claude.com/docs/en/hooks
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+
+if (process.env.CLAUDE_SKIP_CHECKS === "1") process.exit(0);
+
+const parse = (read) => {
+  try {
+    return JSON.parse(read() || "{}") ?? {};
+  } catch {
+    return {}; // fail open: a bad payload or config never blocks the session
+  }
+};
+const here = dirname(fileURLToPath(import.meta.url));
+const config = parse(() => readFileSync(join(here, "checks.json"), "utf8"));
+const formatters = Object.entries(config.format ?? {});
+const verifiers = [].concat(config.verify ?? []).filter((c) => typeof c === "string" && c.trim());
+if (!formatters.length && !verifiers.length) process.exit(0);
+
+const payload = parse(() => readFileSync(0, "utf8"));
+const projectDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+const isWin = process.platform === "win32";
+
+// Set when Claude edits a file, cleared when verify passes.
+const session = String(payload.session_id ?? "none").replace(/[^A-Za-z0-9_-]/g, "_");
+const marker = join(tmpdir(), `claude-checks-${session}`);
+
+const norm = (p) => (isWin ? resolve(p).toLowerCase() : resolve(p));
+// CLAUDE_PROJECT_DIR doesn't follow Claude into a git worktree, so run commands in
+// the checkout that holds `dir` when that is a different checkout from the project.
+function rootFor(dir) {
+  const r = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd: dir, encoding: "utf8" });
+  const top = r.status === 0 ? r.stdout.trim() : "";
+  if (!top) return projectDir;
+  const sameCheckout = norm(projectDir) === norm(top) || norm(projectDir).startsWith(norm(top) + sep);
+  return sameCheckout ? projectDir : top;
+}
+
+const quote = (s) => (isWin ? `"${s.replace(/"/g, '""')}"` : `'${s.replace(/'/g, `'\''`)}'`);
+function run(cmd, cwd) {
+  const r = spawnSync(cmd, { shell: true, encoding: "utf8", cwd });
+  const out = `${r.stdout || ""}${r.stderr || ""}`.trim();
+  const missing =
+    Boolean(r.error) ||
+    r.status === 127 ||
+    (isWin && r.status === 1 && /is not recognized as an internal or external command/.test(out));
+  return { ok: r.status === 0 || missing, out: out.split(/\r?\n/).slice(-60).join("\n") };
+}
+function fail(heading, failures) {
+  process.stderr.write(`${heading}\n${failures.map((f) => `── ${f.cmd} ──\n${f.out}`).join("\n")}\n`);
+  process.exit(2);
+}
+
+if (process.argv[2] === "format") {
+  const raw = String(payload.tool_input?.file_path ?? "");
+  const file = raw && (isAbsolute(raw) ? raw : resolve(payload.cwd || projectDir, raw));
+  if (!file || !existsSync(file)) process.exit(0);
+  if (verifiers.length) writeFileSync(marker, "");
+
+  const ext = extname(file).slice(1).toLowerCase();
+  const match = formatters.find(([exts]) =>
+    exts.split(",").some((e) => e.trim().replace(/^\./, "").toLowerCase() === ext),
+  );
+  if (!match) process.exit(0);
+  const cmd = String(match[1]).replaceAll("{file}", quote(file));
+  const r = run(cmd, rootFor(dirname(file)));
+  if (!r.ok) fail(`Format/lint left issues in ${file}. Fix them:`, [{ cmd, out: r.out }]);
+}
+
+if (process.argv[2] === "verify") {
+  // Already continuing because this hook blocked once: let Claude stop. The marker
+  // stays, so the next turn verifies again.
+  if (payload.stop_hook_active === true || !existsSync(marker)) process.exit(0);
+  const root = rootFor(payload.cwd || projectDir);
+  const failures = verifiers.map((cmd) => ({ cmd, ...run(cmd, root) })).filter((r) => !r.ok);
+  if (failures.length) fail("Checks failed for this session's changes. Fix them before finishing:", failures);
+  rmSync(marker, { force: true });
+}
+process.exit(0);

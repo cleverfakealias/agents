@@ -1,7 +1,8 @@
-# Claude Code agent artifacts — keep these out of version control.
-# Merge (append) these lines into an existing repo .gitignore; don't overwrite.
+# Claude Code: per-machine files that stay out of version control.
+# Append these lines to an existing .gitignore; don't overwrite it.
 .claude/worktrees/
 .claude/settings.local.json
+CLAUDE.local.md
 
 # Recurring agent scratch / generated files (2026-06-22)
 UPGRADE_INTENT.md
