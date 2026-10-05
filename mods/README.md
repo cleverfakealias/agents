@@ -37,7 +37,9 @@ For one session only: `claude --plugin-dir mods/shell-sense --plugin-dir ...`.
 
 Each mod is `.claude-plugin/plugin.json`, `hooks/hooks.json`, `hooks/register.ts`
 (the hooks, which pass `$` only to functions declared in that file), and
-`hooks/rules.ts` (pure logic the tests import).
+`hooks/rules.ts` (pure logic the tests import). `package-gate`, `repo-lock` and
+`secret-shield` also hold `hooks/shell.ts`, the shell tokenizer they share: change
+one copy, then copy it over the other two. `tests/mods.test.mjs` fails while they differ.
 
 ```bash
 claude plugin validate mods/<name>    # what the engine would load or refuse

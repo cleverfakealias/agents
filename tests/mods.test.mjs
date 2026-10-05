@@ -22,6 +22,17 @@ test("every mod has a manifest and a hooks module that exists", () => {
   }
 });
 
+test("the shell tokenizer is the same file in every mod that holds it", () => {
+  const copies = names
+    .map((name) => join(mods, name, "hooks/shell.ts"))
+    .filter((file) => existsSync(file))
+    .map((file) => ({ file, text: readFileSync(file, "utf8").replace(/\r\n/g, "\n") }));
+  assert.ok(copies.length >= 3, "package-gate, repo-lock and secret-shield each hold a copy");
+  for (const { file, text } of copies) {
+    assert.equal(text, copies[0].text, `${file} differs from ${copies[0].file}: copy the changed one over the others`);
+  }
+});
+
 for (const name of names) {
   test(`${name}: claude plugin validate and test pass`, { skip: !hasClaude && "claude CLI not on PATH" }, () => {
     for (const verb of ["validate", "test"]) {

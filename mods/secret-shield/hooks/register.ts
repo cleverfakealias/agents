@@ -1,6 +1,7 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-import { MARK, addsMark, envDump, isSecretFile, redact, segments, shellRead } from './rules'
+import { MARK, addsMark, envDump, isSecretFile, redact, shellRead } from './rules'
+import { segments } from './shell'
 
 const READ_DENY = (file: string) =>
   `secret-shield: ${file} holds secrets, so its contents stay out of the transcript. ` +

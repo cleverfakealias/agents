@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { LOOKS_LIKE_INSTALL, fromCommand, fromManifestEdit, segments } from '../hooks/rules'
+import { LOOKS_LIKE_INSTALL, fromCommand, fromManifestEdit } from '../hooks/rules'
+import { segments } from '../hooks/shell'
 
 const names = (command: string, local: string[] = []) => fromCommand(command, n => local.includes(n)).map(p => p.name)
 
