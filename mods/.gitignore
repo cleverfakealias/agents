@@ -1,1 +1,4 @@
 .types/
+# per-mod editor configs Claude Code's plugin tooling writes; each extends the
+# ignored .claude-plugin/types/, so it would dangle in a fresh clone
+*/tsconfig.json
