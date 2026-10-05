@@ -7,6 +7,11 @@
   you edited files, it runs the verify commands (tests, typecheck). Both lists live
   in `.claude/hooks/checks.json`. If a check reports problems, fix them; don't work
   around the hook.
+- **Edit files with Edit or Write.** The format hook and the diff view only see those
+  tools. Don't patch source with inline `python`, `node -e`, or `sed` scripts; for a
+  large mechanical change, write the script to a file first and run it.
+- **Commits**: plain conventional messages. No `Co-Authored-By` trailers and no
+  "Generated with" footers.
 - **Permissions** live in `.claude/settings.json`. Secret files are denied outright.
   Pushing, `git reset --hard`, `git clean`, merging a PR, and editing CI workflows
   always ask the user first. If a rule stops you, say so and wait; don't look for
