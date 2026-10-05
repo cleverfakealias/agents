@@ -78,6 +78,7 @@ async function shellGuard($: EngineInterface, command: string): Promise<string |
 // Fail closed when the command names anything secret-shaped; let the rest through.
 const MENTIONS_SECRET = /\.env\b|\.dev\.vars|tokens?\.json|credentials|\.pem\b|\.key\b|id_(rsa|ed25519)|printenv|env:|git\s+(add|push)/i
 const FAILED = 'secret-shield could not check this command, so it did not run. Run a narrower command, or ask the user.'
+const UNSCANNED = 'secret-shield could not scan this tool output for secrets, so it hid all of it. Rerun with less output (head, a filter, a smaller file).'
 
 export const register: Register = on => {
   on('tool.call', { tool: 'Read' }, ($, e, next) =>
@@ -124,6 +125,13 @@ export const register: Register = on => {
     })
     if (!total) return next(e)
     $.ui.toast(`secret-shield: hid ${total} secret value${total === 1 ? '' : 's'} in a tool result`)
+    return next({ ...e, message: { ...e.message, content } })
+  }).catch(($, e, next) => {
+    // Skipped, this hook would store the output unscanned: hide all of it instead.
+    const content = e.message.content.map(block => {
+      if (block.type === 'text') return { ...block, text: UNSCANNED }
+      return block.type === 'tool_result' ? { ...block, content: UNSCANNED } : block
+    })
     return next({ ...e, message: { ...e.message, content } })
   })
 }

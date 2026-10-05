@@ -87,6 +87,34 @@ describe('redaction', () => {
   })
 })
 
+describe('redaction cost', () => {
+  const dashes = '-'.repeat(5)
+  const pem = (kind: string, body: string) =>
+    `${dashes}BEGIN ${kind}PRIVATE KEY${dashes}\n${body}\n${dashes}END ${kind}PRIVATE KEY${dashes}`
+
+  test('private key blocks are hidden, legacy headers included', () => {
+    const body = filler('MIIEvQIBADANBgkqhkiG9w0BAQEFAASC', 256)
+    expect(redact(pem('', body)).text).not.toContain(body)
+    const legacy = `Proc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,${filler('9F8E7D', 32)}\n\n${body}`
+    expect(redact(pem('RSA ', legacy)).text).not.toContain(body)
+  })
+  test('a stray BEGIN does not stop the next key from being hidden', () => {
+    const body = filler('MIIEvQIBADANBgkqhkiG9w0BAQEFAASC', 256)
+    const r = redact(`${dashes}BEGIN PRIVATE KEY${dashes}\ncut off\n${pem('EC ', body)}`)
+    expect(r.text).not.toContain(body)
+  })
+  test('stays linear on input built to backtrack', () => {
+    const n = 64000 // about 313 KB each; the unbounded rules took 12 s on one of these
+    const word = 'token'.repeat(n)
+    const begin = `${dashes}BEGIN PRIVATE KEY${dashes}\n`
+    for (const input of [word, `"${word}`, `<${word}`, begin.repeat(n / 6)]) {
+      const start = performance.now()
+      redact(input)
+      expect(performance.now() - start).toBeLessThan(500)
+    }
+  })
+})
+
 describe('the redaction marker', () => {
   test('an edit may not add markers', () => {
     expect(addsMark('', `KEY=${MARK}`)).toBe(true)

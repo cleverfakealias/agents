@@ -116,19 +116,23 @@ export const MARK = '[redacted by secret-shield]'
 // parts with digits (`MTk4.Cl2F.ZnCj`) still look like a token and stay redacted.
 const CODE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*[([]|^[A-Za-z_$]+(?:\.[A-Za-z_$]+)+[!?]?$/
 const PLACEHOLDER = /^(.{0,3}|.*(example|placeholder|your[_-]|xxx|changeme|redacted|dummy|fake|test|\*\*\*|<|\$\{|\$\().*)$/i
-const SECRET_KEY = '[A-Za-z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|API_?KEY|PRIVATE_?KEY|AUTH_?KEY|CLIENT_?SECRET|ACCESS_?KEY)[A-Za-z0-9_]*'
+// Every quantifier around a keyword is bounded: an unbounded `\w*KEYWORD\w*`
+// backtracks quadratically on one long word ("tokentoken..."), and a hook that
+// outruns its budget is skipped, which would store the result unredacted.
+const SECRET_KEY = '[A-Za-z0-9_]{0,64}(?:SECRET|TOKEN|PASSWORD|PASSWD|API_?KEY|PRIVATE_?KEY|AUTH_?KEY|CLIENT_?SECRET|ACCESS_?KEY)[A-Za-z0-9_]{0,64}'
 
 // keep: how many leading groups to keep. code: also pass values that are code.
 type Rule = { re: RegExp; keep?: number; code?: boolean }
 
 const RULES: Rule[] = [
-  { re: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g },
+  // The body stops at the next ----- line, so a BEGIN with no END scans one block, not the rest.
+  { re: /-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----[^-]*(?:-(?!----)[^-]*)*-----END [A-Z ]{0,40}PRIVATE KEY-----/g },
   // KEY=value and KEY: value lines (env files, YAML, wrangler output, source code)
   { re: new RegExp(`(\\b(?!PUBLIC_)${SECRET_KEY}\\s*[=:]\\s*["']?)([^\\s"',;]{8,})`, 'gi'), keep: 1, code: true },
   // "accessToken": "..." in JSON
   { re: new RegExp(`("(?!public)${SECRET_KEY}"\\s*:\\s*")([^"]{8,})`, 'gi'), keep: 1 },
   // <writeToken>...</writeToken> in XML
-  { re: /(<\w*(?:token|secret|password|apikey)\w*>)([^<]{12,})(?=<\/)/gi, keep: 1 },
+  { re: /(<\w{0,64}(?:token|secret|password|apikey)\w{0,64}>)([^<]{12,})(?=<\/)/gi, keep: 1 },
   { re: /(Authorization:\s*(?:Bearer|token)\s+)([A-Za-z0-9._~+/=-]{20,})/gi, keep: 1 },
   { re: /(?<![A-Za-z0-9+/])sk[A-Za-z0-9]{70,}(?![A-Za-z0-9+/=])/g }, // Sanity
   { re: /(?<![A-Za-z0-9])sk-(?:ant-|proj-)?[A-Za-z0-9_-]{30,}/g }, // Anthropic, OpenAI
