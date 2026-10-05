@@ -27,6 +27,9 @@ describe('pmCalls', () => {
     expect(first("bash -c 'npm i zod'")?.verb).toBe('i')
     expect(pmCalls('(cd web && npm i zod)')).toEqual({ cd: 'web', calls: [{ pm: 'npm', verb: 'i', subdir: undefined, isGlobal: false }] })
   })
+  test('heredoc bodies are not commands', () => {
+    expect(pmCalls("cat > bench.mjs <<'EOF'\nconst re = /\\b(npm|pnpm|yarn|bun)\\s+install/\nEOF").calls).toEqual([])
+  })
   test('checking that a tool exists is not an install', () => {
     expect(pmCalls('command -v yarn && yarn --version').calls).toEqual([])
   })

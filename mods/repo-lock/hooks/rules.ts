@@ -21,6 +21,7 @@ export const LOCKFILES: [string, Pm][] = [
 const WRAPPERS = new Set(['time', 'nohup', 'exec', 'sudo', 'nice', 'env', 'xargs', 'corepack', 'timeout', 'stdbuf'])
 const SHELLS = /^(bash|sh|zsh|dash|cmd|powershell|pwsh)(\.exe)?$/i
 const RUN_FLAG = /^(-[a-z]*c|\/c|-command)$/i
+const HEREDOC = /<<-?[ \t]*(['"]?)([\w.-]+)\1/y
 
 function expand(words: string[]): string[][] {
   let w = words.filter(x => x !== '{' && x !== '}')
@@ -44,6 +45,20 @@ export function segments(command: string): string[][] {
   let quote: string | null = null
   let has = false
   const subs: (string | null)[] = [] // the quote each open ( or $( returns to at its )
+  let bodies: string[] = [] // heredoc end tags whose bodies start at the next newline
+  // A heredoc body is data (cat > notes.md <<EOF): skip to the line after its end tag.
+  const skipBodies = (at: number) => {
+    for (const tag of bodies) {
+      while (at < command.length) {
+        const end = command.indexOf('\n', at + 1)
+        const line = command.slice(at + 1, end < 0 ? command.length : end)
+        at = end < 0 ? command.length : end
+        if (line.trim() === tag) break
+      }
+    }
+    bodies = []
+    return at
+  }
   const endWord = () => {
     if (has) words.push(word)
     word = ''
@@ -75,12 +90,25 @@ export function segments(command: string): string[][] {
     } else if (c === ')') {
       endSegment()
       quote = subs.pop() ?? null
+    } else if (c === '<' && next === '<') {
+      HEREDOC.lastIndex = i
+      const m = command[i + 2] === '<' ? null : HEREDOC.exec(command)
+      if (m) {
+        endWord()
+        if (!SHELLS.test(words[0] ?? '')) bodies.push(m[2]) // bash <<EOF runs its body: read it
+        i = HEREDOC.lastIndex - 1
+      } else {
+        while (command[i + 1] === '<') word += command[i++] // <<< here-string
+        word += c
+        has = true
+      }
     } else if (c === '&' && (next === '>' || command[i - 1] === '>' || command[i - 1] === '<')) {
       word += c // 2>&1 and &> are redirects, not separators
       has = true
     } else if (c === '\n' || c === ';' || c === '|' || c === '&' || c === '`') {
       if ((c === '&' || c === '|') && next === c) i++
       endSegment()
+      if (c === '\n' && bodies.length) i = skipBodies(i)
     } else if (/\s/.test(c)) {
       endWord()
     } else {

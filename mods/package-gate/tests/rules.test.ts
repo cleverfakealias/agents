@@ -79,6 +79,11 @@ describe('commands that bring in packages', () => {
     ])
       expect(names(command)).toEqual(['left-pad'])
   })
+  test('heredoc bodies are data, unless a shell runs them', () => {
+    expect(names("cat > notes.md <<'EOF'\nnpm i left-pad adds it.\nEOF")).toEqual([])
+    expect(names('cat > notes.md <<-EOF\n\tnpm i left-pad\n\tEOF\nnpm i zod')).toEqual(['zod'])
+    expect(names("bash <<'EOF'\nnpm i left-pad\nEOF")).toEqual(['left-pad'])
+  })
   test('redirects are not package names', () => {
     expect(names('npm install left-pad 2>&1 | tail -5')).toEqual(['left-pad'])
     expect(names('npm install left-pad > log.txt')).toEqual(['left-pad'])

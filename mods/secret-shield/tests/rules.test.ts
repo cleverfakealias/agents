@@ -52,6 +52,10 @@ describe('shell reads', () => {
     ])
       expect(shellRead(command)).toBeTruthy()
   })
+  test('heredoc bodies are data', () => {
+    expect(shellRead("cat > notes.md <<'EOF'\ncat .env is blocked here\nEOF")).toBeUndefined()
+    expect(shellRead("cat > notes.md <<'EOF'\nDon't share it.\nEOF\ncat .env")).toBe('.env')
+  })
   test('globs that also match everyday files pass', () => {
     for (const command of ['cat *.json', 'grep -n token *', 'cat .*', 'ls .env*', 'cat .env.exam*'])
       expect(shellRead(command)).toBeUndefined()
