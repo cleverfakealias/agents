@@ -56,27 +56,33 @@ async function manifestDeny($: EngineInterface, path: string, edit: { old?: stri
   return pkgs.length ? gate($, `Claude wants to add dependencies to ${path}.`, pkgs) : undefined
 }
 
+// If a gate hook throws or times out, the engine would skip it and run the call.
+// Fail closed for anything that looks like an install; let the rest through.
+const LOOKS_LIKE_INSTALL =
+  /\b(npm|pnpm|yarn|bun|pip3?|uv|pipx|poetry|cargo|go|gem|winget|choco|scoop|brew)\s+(\S+\s+)*(install|i|add|dlx|get)\b|\b(npx|bunx|uvx)\s|install-(module|package|script)/i
+const FAILED = 'package-gate could not check this call, so it did not run. Ask the user before installing anything.'
+
 export const register: Register = on => {
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const pkgs = fromCommand(e.command, await localBins($, e.command))
     const deny = pkgs.length ? await gate($, 'Claude wants to install packages on this machine.', pkgs) : undefined
     return deny ? { deny } : next(e)
-  })
+  }).catch(($, e, next) => (LOOKS_LIKE_INSTALL.test(e.command) ? { deny: FAILED } : next(e)))
 
   on('tool.call', { tool: 'PowerShell' }, async ($, e, next) => {
     const pkgs = fromCommand(e.command, await localBins($, e.command))
     const deny = pkgs.length ? await gate($, 'Claude wants to install packages on this machine.', pkgs) : undefined
     return deny ? { deny } : next(e)
-  })
+  }).catch(($, e, next) => (LOOKS_LIKE_INSTALL.test(e.command) ? { deny: FAILED } : next(e)))
 
   // The side door: add a dependency to a manifest, then run a plain install.
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
     const deny = await manifestDeny($, e.file_path, { old: e.old_string, new: e.new_string, whole: false })
     return deny ? { deny } : next(e)
-  })
+  }).catch(($, e, next) => (isManifest(e.file_path) ? { deny: FAILED } : next(e)))
 
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
     const deny = await manifestDeny($, e.file_path, { new: e.content, whole: true })
     return deny ? { deny } : next(e)
-  })
+  }).catch(($, e, next) => (isManifest(e.file_path) ? { deny: FAILED } : next(e)))
 }

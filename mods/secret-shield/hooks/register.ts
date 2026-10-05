@@ -70,6 +70,11 @@ async function shellGuard($: EngineInterface, command: string): Promise<string |
   return gitGuard($, command)
 }
 
+// If a guard throws or times out, the engine would skip it and run the call.
+// Fail closed when the command names anything secret-shaped; let the rest through.
+const MENTIONS_SECRET = /\.env\b|\.dev\.vars|tokens?\.json|credentials|\.pem\b|\.key\b|id_(rsa|ed25519)|printenv|env:|git\s+(add|push)/i
+const FAILED = 'secret-shield could not check this command, so it did not run. Run a narrower command, or ask the user.'
+
 export const register: Register = on => {
   on('tool.call', { tool: 'Read' }, ($, e, next) =>
     isSecretFile(e.file_path) ? { deny: READ_DENY(e.file_path) } : next(e),
@@ -78,12 +83,12 @@ export const register: Register = on => {
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const deny = await shellGuard($, e.command)
     return deny ? { deny } : next(e)
-  })
+  }).catch(($, e, next) => (MENTIONS_SECRET.test(e.command) ? { deny: FAILED } : next(e)))
 
   on('tool.call', { tool: 'PowerShell' }, async ($, e, next) => {
     const deny = await shellGuard($, e.command)
     return deny ? { deny } : next(e)
-  })
+  }).catch(($, e, next) => (MENTIONS_SECRET.test(e.command) ? { deny: FAILED } : next(e)))
 
   // Scrub token shapes from tool output before the transcript keeps it. The
   // stored row is also what the model reads, so the value never reaches it.
