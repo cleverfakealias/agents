@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { envDump, isSecretFile, redact, shellRead } from '../hooks/rules'
+import { MARK, addsMark, envDump, isSecretFile, redact, shellRead } from '../hooks/rules'
 
 // Values are built at run time so no secret-looking literal sits in the repo.
 const filler = (seed: string, n: number) => seed.repeat(Math.ceil(n / seed.length)).slice(0, n)
@@ -69,4 +69,40 @@ describe('redaction', () => {
     expect(redact('PUBLIC_CF_BEACON_TOKEN=' + filler('ab12', 32)).count).toBe(0)
     expect(redact('data:image/png;base64,iVBOR/' + 'sk' + filler('Ab12', 90)).count).toBe(0)
   })
+  test('code that names a secret stays readable', () => {
+    for (const line of [
+      'const apiKey = process.env.API_KEY',
+      'accessToken: response.data.token,',
+      'token = getToken()',
+      'secret = os.environ["APP_SECRET"]',
+      'password: this.hashedPassword!',
+    ])
+      expect(redact(line).text).toBe(line)
+  })
+  test('values next to code-like ones are still hidden', () => {
+    const dotted = `${filler('MTk4NjI', 24)}.${filler('Cl2FMQ', 6)}.${filler('ZnCjm1X', 27)}`
+    expect(redact(`DISCORD_TOKEN=${dotted}`).text).not.toContain(dotted)
+    const v = filler('Q9w8E7r6T5', 32)
+    expect(redact(`const apiKey = "${v}"`).text).not.toContain(v)
+  })
+})
+
+describe('the redaction marker', () => {
+  test('an edit may not add markers', () => {
+    expect(addsMark('', `KEY=${MARK}`)).toBe(true)
+    expect(addsMark(`a ${MARK}`, `b ${MARK}`)).toBe(false)
+    expect(addsMark(`a ${MARK}`, 'a value')).toBe(false)
+    expect(addsMark('plain', 'plain too')).toBe(false)
+  })
+})
+
+test('an Edit that writes the marker never reaches the tool', async ($, on) => {
+  let ran = false
+  on('tool.call', { tool: 'Edit' }, () => {
+    ran = true
+    return { deny: 'reached the tool' }
+  })
+  const r = await $.tool.call({ tool: 'Edit', file_path: 'src/config.ts', old_string: 'apiKey: x', new_string: `apiKey: ${MARK}` })
+  expect(ran).toBe(false)
+  expect(JSON.stringify(r)).toContain('secret-shield')
 })

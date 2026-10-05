@@ -1,10 +1,14 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-import { envDump, isSecretFile, redact, segments, shellRead } from './rules'
+import { MARK, addsMark, envDump, isSecretFile, redact, segments, shellRead } from './rules'
 
 const READ_DENY = (file: string) =>
   `secret-shield: ${file} holds secrets, so its contents stay out of the transcript. ` +
   'If you need a value, ask the user. If you need the variable names, read the .example or .template file.'
+const MARK_DENY = (file: string) =>
+  `secret-shield: this edit would write "${MARK}" into ${file}. The marker stands in for a value you never saw, ` +
+  'so writing it would destroy that value. Edit only the lines you need and leave redacted lines as they are. ' +
+  'If the file really needs the marker text, ask the user.'
 
 // /z/github_projects/x → Z:/github_projects/x, so git gets a path Windows knows.
 const winPath = (p: string) => p.replace(/^\/([a-zA-Z])(\/|$)/, (_, d: string) => `${d.toUpperCase()}:/`)
@@ -78,6 +82,17 @@ const FAILED = 'secret-shield could not check this command, so it did not run. R
 export const register: Register = on => {
   on('tool.call', { tool: 'Read' }, ($, e, next) =>
     isSecretFile(e.file_path) ? { deny: READ_DENY(e.file_path) } : next(e),
+  )
+
+  // What Claude read may hold MARK in place of a value: don't let it write that back.
+  on('tool.call', { tool: 'Write' }, async ($, e, next) => {
+    if (!e.content.includes(MARK)) return next(e)
+    const before = await $.fs.read(e.file_path).catch(() => undefined)
+    return addsMark(typeof before === 'string' ? before : '', e.content) ? { deny: MARK_DENY(e.file_path) } : next(e)
+  })
+
+  on('tool.call', { tool: 'Edit' }, ($, e, next) =>
+    addsMark(e.old_string, e.new_string) ? { deny: MARK_DENY(e.file_path) } : next(e),
   )
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {

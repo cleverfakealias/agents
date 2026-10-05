@@ -111,16 +111,20 @@ export function envDump(command: string): boolean {
 }
 
 // ── redaction ─────────────────────────────────────────────────────────────────
-const MARK = '[redacted by secret-shield]'
+export const MARK = '[redacted by secret-shield]'
+// Code, not a value: `process.env.API_KEY`, `getToken()`, `os.environ[...]`. Dotted
+// parts with digits (`MTk4.Cl2F.ZnCj`) still look like a token and stay redacted.
+const CODE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*[([]|^[A-Za-z_$]+(?:\.[A-Za-z_$]+)+[!?]?$/
 const PLACEHOLDER = /^(.{0,3}|.*(example|placeholder|your[_-]|xxx|changeme|redacted|dummy|fake|test|\*\*\*|<|\$\{|\$\().*)$/i
 const SECRET_KEY = '[A-Za-z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|API_?KEY|PRIVATE_?KEY|AUTH_?KEY|CLIENT_?SECRET|ACCESS_?KEY)[A-Za-z0-9_]*'
 
-type Rule = { re: RegExp; keep?: number } // keep: how many leading groups to keep
+// keep: how many leading groups to keep. code: also pass values that are code.
+type Rule = { re: RegExp; keep?: number; code?: boolean }
 
 const RULES: Rule[] = [
   { re: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g },
-  // KEY=value and KEY: value lines (env files, YAML, wrangler output)
-  { re: new RegExp(`(\\b(?!PUBLIC_)${SECRET_KEY}\\s*[=:]\\s*["']?)([^\\s"',;]{8,})`, 'gi'), keep: 1 },
+  // KEY=value and KEY: value lines (env files, YAML, wrangler output, source code)
+  { re: new RegExp(`(\\b(?!PUBLIC_)${SECRET_KEY}\\s*[=:]\\s*["']?)([^\\s"',;]{8,})`, 'gi'), keep: 1, code: true },
   // "accessToken": "..." in JSON
   { re: new RegExp(`("(?!public)${SECRET_KEY}"\\s*:\\s*")([^"]{8,})`, 'gi'), keep: 1 },
   // <writeToken>...</writeToken> in XML
@@ -138,7 +142,7 @@ const RULES: Rule[] = [
 export function redact(text: string): { text: string; count: number } {
   let count = 0
   let out = text
-  for (const { re, keep } of RULES) {
+  for (const { re, keep, code } of RULES) {
     out = out.replace(re, (...m: string[]) => {
       const whole = m[0]
       if (keep === undefined) {
@@ -146,10 +150,15 @@ export function redact(text: string): { text: string; count: number } {
         return MARK
       }
       const value = m[keep + 1] ?? ''
-      if (PLACEHOLDER.test(value)) return whole
+      if (PLACEHOLDER.test(value) || (code && CODE.test(value))) return whole
       count++
       return m.slice(1, keep + 1).join('') + MARK
     })
   }
   return { text: out, count }
 }
+
+// Claude saw MARK where a value was. Writing what it saw back would replace
+// the real value with MARK, so an edit may not add more MARKs than it removes.
+const marks = (text: string) => text.split(MARK).length - 1
+export const addsMark = (before: string, after: string) => marks(after) > marks(before)
