@@ -6,7 +6,7 @@
 //     "verify": ["npm test"] }
 //
 //   node checks.mjs format   PostToolUse (Edit|Write): run the command configured for
-//                            the edited file's extension. {file} is the quoted path.
+//                            the edited file's extension. {file} is the file's path.
 //   node checks.mjs verify   Stop: if Claude edited files since the last passing run,
 //                            run the verify commands (tests, typecheck).
 //
@@ -54,9 +54,11 @@ function rootFor(dir) {
   return sameCheckout ? projectDir : top;
 }
 
-const quote = (s) => (isWin ? `"${s.replace(/"/g, '""')}"` : `'${s.replace(/'/g, `'\''`)}'`);
-function run(cmd, cwd) {
-  const r = spawnSync(cmd, { shell: true, encoding: "utf8", cwd });
+// {file} becomes a quoted variable reference, never the path itself, so a file name
+// with quotes, $( ) or ; in it can't break out of the command.
+const FILE_REF = isWin ? `"%CHECKS_FILE%"` : `"$CHECKS_FILE"`;
+function run(cmd, cwd, env = {}) {
+  const r = spawnSync(cmd, { shell: true, encoding: "utf8", cwd, env: { ...process.env, ...env } });
   const out = `${r.stdout || ""}${r.stderr || ""}`.trim();
   const missing =
     Boolean(r.error) ||
@@ -80,8 +82,8 @@ if (process.argv[2] === "format") {
     exts.split(",").some((e) => e.trim().replace(/^\./, "").toLowerCase() === ext),
   );
   if (!match) process.exit(0);
-  const cmd = String(match[1]).replaceAll("{file}", quote(file));
-  const r = run(cmd, rootFor(dirname(file)));
+  const cmd = String(match[1]);
+  const r = run(cmd.replaceAll("{file}", FILE_REF), rootFor(dirname(file)), { CHECKS_FILE: file });
   if (!r.ok) fail(`Format/lint left issues in ${file}. Fix them:`, [{ cmd, out: r.out }]);
 }
 

@@ -50,6 +50,15 @@ test("format runs the command for the file's extension, with the path quoted", (
   assert.ok(existsSync(`${t.file}.seen`), "formatter received the file path");
 });
 
+test("format passes a hostile file name through intact and runs nothing from it", () => {
+  const t = setup({ format: { txt: TOUCH }, verify: [] });
+  const file = join(t.dir, "it's $(echo pwned) & %PATH% ; x.txt");
+  writeFileSync(file, "x");
+  assert.equal(t.run("format", { tool_input: { file_path: file } }).status, 0);
+  assert.ok(existsSync(`${file}.seen`), "formatter received the exact path");
+  assert.deepEqual(readdirSync(t.dir).filter((f) => f.includes("pwned") && !f.startsWith("it's")), []);
+});
+
 test("format skips extensions with no command", () => {
   const t = setup({ format: { py: FAIL }, verify: [] });
   assert.equal(t.edit().status, 0);
