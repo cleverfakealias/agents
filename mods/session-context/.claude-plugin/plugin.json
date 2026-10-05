@@ -1,0 +1,5 @@
+{
+  "name": "session-context",
+  "version": "0.1.0",
+  "description": "Tells Claude which repo, branch, package manager and uncommitted work a prompt is about, plus recent commits and the latest spec at session start. Adds /where."
+}
