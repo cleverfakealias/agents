@@ -1,34 +1,31 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-import { LOCKFILES, type Pm, ancestors, join, pmCalls, verdict, winPath } from './rules'
+import { CHANGES_BRANCH, LOCKFILES, type Pm, ancestors, join, pmCalls, verdict, winPath } from './rules'
 
-// The nearest lockfile at or above `dir` names the package manager.
+// The nearest lockfile at or above `dir` names the package manager. A folder's
+// lockfiles are checked at once, nearest folder first.
 async function repoPm($: EngineInterface, dir: string): Promise<Pm | undefined> {
   for (const folder of ancestors(dir)) {
-    for (const [file, pm] of LOCKFILES) {
-      if (await $.fs.exists(`${folder}/${file}`).catch(() => false)) return pm
-    }
+    const found = await Promise.all(LOCKFILES.map(([file]) => $.fs.exists(`${folder}/${file}`).catch(() => false)))
+    const i = found.indexOf(true)
+    if (i >= 0) return LOCKFILES[i][1]
   }
   return undefined
 }
 
-async function run($: EngineInterface, argv: string[], cwd: string): Promise<string> {
-  try {
-    const r = await $.process.run(argv, { cwd, timeoutMs: 10000 })
-    return r.exitCode === 0 ? r.stdout.trim() : ''
-  } catch {
-    return ''
-  }
-}
+// The folder the status line shows. A reload clears it, so the next command redraws.
+let shownFor: string | undefined
 
-// Status line: repo · package manager · branch
+// Status line: repo · package manager · branch. One git call answers the first
+// and last; in a repo with no commits it exits 128 but still prints both.
 async function showStatus($: EngineInterface, dir: string) {
-  const top = await run($, ['git', 'rev-parse', '--show-toplevel'], dir)
+  shownFor = dir
+  const r = await $.process.run(['git', 'rev-parse', '--show-toplevel', '--abbrev-ref', 'HEAD'], { cwd: dir, timeoutMs: 10000 }).catch(() => undefined)
+  const [top, branch] = (r?.stdout ?? '').trim().split(/\r?\n/)
   if (!top) {
     $.ui.status(`${winPath(dir).split('/').pop()} · not a repo`)
     return
   }
-  const branch = await run($, ['git', 'rev-parse', '--abbrev-ref', 'HEAD'], dir)
   const pm = await repoPm($, dir)
   $.ui.status([top.split('/').pop(), pm ?? 'no lockfile', branch].filter(Boolean).join(' · '))
 }
@@ -46,10 +43,11 @@ async function guard($: EngineInterface, command: string): Promise<string | unde
   return undefined
 }
 
+// Redraw only when what the line shows can have changed: the folder, the branch,
+// or the lockfile. Most commands start with `cd`, so matching cd redrew every time.
 async function afterCommand($: EngineInterface, command: string) {
-  if (/\b(cd|set-location|git\s+(checkout|switch|worktree)|pushd|popd)\b/i.test(command)) {
-    await showStatus($, await $.session.cwd())
-  }
+  const dir = await $.session.cwd()
+  if (dir !== shownFor || CHANGES_BRANCH.test(command) || pmCalls(command).calls.length) await showStatus($, dir)
 }
 
 export const register: Register = on => {

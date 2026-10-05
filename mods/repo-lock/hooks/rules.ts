@@ -141,6 +141,9 @@ const MUTATING: Record<Pm, string[]> = {
 }
 const DIR_FLAGS = new Set(['--prefix', '-C', '--dir', '--cwd'])
 
+// Commands that can change the branch the status line shows.
+export const CHANGES_BRANCH = /\bgit\s+(checkout|switch|branch|init)\b/i
+
 export type PmCall = { pm: Pm; verb: string; subdir?: string; isGlobal: boolean }
 
 // The dependency-changing package manager calls in a command, and the leading

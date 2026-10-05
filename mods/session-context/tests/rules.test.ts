@@ -45,3 +45,30 @@ describe('spec note', () => {
     expect(out).toBe('# Status\n- item 0\n- item 1\n...')
   })
 })
+
+test('/where runs its git and file checks at once, not one after another', async ($, on) => {
+  let inFlight = 0
+  let most = 0
+  const answers: Record<string, string> = {
+    'rev-parse': 'Z:/r',
+    status: '# branch.head main\n# branch.upstream origin/main\n# branch.ab +0 -0\n',
+    log: 'abc1234 fix: a thing (2 hours ago)',
+  }
+  on('session.cwd', () => ({ value: 'Z:/r' }))
+  on('fs.exists', (_, e) => ({ value: e.path.replace(/\\/g, '/') === 'Z:/r/web/pnpm-lock.yaml' }))
+  on('fs.list', (_, e) =>
+    ({ value: e.path.replace(/\\/g, '/') === 'Z:/r' ? ['api', 'docs', 'web'].map(name => ({ name, kind: 'dir' as const, size: 0, mtimeMs: 0 })) : [] }),
+  )
+  on('process.run', async (_, e) => {
+    inFlight++
+    most = Math.max(most, inFlight)
+    for (let k = 0; k < 50; k++) await Promise.resolve()
+    inFlight--
+    return { value: { exitCode: 0, stdout: answers[e.argv[1]] ?? '', stderr: '' } }
+  })
+
+  const { text } = await $.command.run({ command: 'where' })
+  expect(text).toContain('Repo r (pnpm in web/) · branch main · clean')
+  expect(text).toContain('abc1234 fix: a thing')
+  expect(most).toBeGreaterThan(1)
+})

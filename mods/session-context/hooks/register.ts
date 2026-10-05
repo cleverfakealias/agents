@@ -23,11 +23,12 @@ async function git($: EngineInterface, cwd: string, args: string[]): Promise<str
   }
 }
 
+// Every check below runs at once rather than one after another: this runs on each
+// typed prompt, and a folder of 15 subfolders was 60 file checks in a row.
 async function lockfileIn($: EngineInterface, dir: string): Promise<string | undefined> {
-  for (const [file, name] of LOCKFILES) {
-    if (await $.fs.exists(`${dir}/${file}`).catch(() => false)) return name
-  }
-  return undefined
+  const found = await Promise.all(LOCKFILES.map(([file]) => $.fs.exists(`${dir}/${file}`).catch(() => false)))
+  const i = found.indexOf(true)
+  return i < 0 ? undefined : LOCKFILES[i][1]
 }
 
 // The package manager at the repo root, or in one folder below it (benhickman.dev/astro).
@@ -35,23 +36,23 @@ async function packageManager($: EngineInterface, top: string): Promise<Pm | und
   const atRoot = await lockfileIn($, top)
   if (atRoot) return { name: atRoot, where: '' }
   const entries = await $.fs.list(top).catch(() => [])
-  for (const entry of entries.filter(x => x.kind === 'dir' && !SKIP.has(x.name)).slice(0, 15)) {
-    const name = await lockfileIn($, `${top}/${entry.name}`)
-    if (name) return { name, where: entry.name }
-  }
-  return undefined
+  const dirs = entries.filter(x => x.kind === 'dir' && !SKIP.has(x.name)).slice(0, 15)
+  const names = await Promise.all(dirs.map(d => lockfileIn($, `${top}/${d.name}`)))
+  const i = names.findIndex(Boolean)
+  return i < 0 ? undefined : { name: names[i] as string, where: dirs[i].name }
 }
 
 async function specNote($: EngineInterface, top: string): Promise<string | undefined> {
   const entries = await $.fs.list(`${top}/specs`).catch(() => [])
-  const files: SpecFile[] = []
-  for (const entry of entries) {
-    if (entry.kind === 'file' && entry.name.endsWith('.md')) files.push({ path: `specs/${entry.name}`, mtimeMs: entry.mtimeMs })
-    if (entry.kind === 'dir') {
+  const found = await Promise.all(
+    entries.map(async (entry): Promise<SpecFile | undefined> => {
+      if (entry.kind === 'file' && entry.name.endsWith('.md')) return { path: `specs/${entry.name}`, mtimeMs: entry.mtimeMs }
+      if (entry.kind !== 'dir') return undefined
       const status = await $.fs.stat(`${top}/specs/${entry.name}/status.md`).catch(() => undefined)
-      if (status) files.push({ path: `specs/${entry.name}/status.md`, mtimeMs: status.mtimeMs })
-    }
-  }
+      return status ? { path: `specs/${entry.name}/status.md`, mtimeMs: status.mtimeMs } : undefined
+    }),
+  )
+  const files = found.filter((f): f is SpecFile => f !== undefined)
   const newest = newestSpec(files)
   if (!newest) return undefined
   const text = await $.fs.read(`${top}/${newest.path}`).catch(() => undefined)
@@ -62,24 +63,26 @@ type Snapshot = { line: string; extra: string[] }
 
 async function snapshot($: EngineInterface, withHistory: boolean): Promise<Snapshot> {
   const cwd = await $.session.cwd()
-  const top = await git($, cwd, ['rev-parse', '--show-toplevel'])
+  // git status works from any folder in the repo, so it need not wait for the top.
+  const [top, statusOut] = await Promise.all([
+    git($, cwd, ['rev-parse', '--show-toplevel']),
+    git($, cwd, ['status', '--porcelain=v2', '--branch']),
+  ])
   if (!top) {
     const entries = await $.fs.list(cwd).catch(() => [])
-    const repos: string[] = []
-    for (const entry of entries.filter(x => x.kind === 'dir' && !x.name.startsWith('.') && !x.name.startsWith('_'))) {
-      if (await $.fs.exists(`${cwd}/${entry.name}/.git`).catch(() => false)) repos.push(entry.name)
-    }
-    return { line: notRepoLine(cwd, repos), extra: [] }
+    const dirs = entries.filter(x => x.kind === 'dir' && !x.name.startsWith('.') && !x.name.startsWith('_'))
+    const isRepo = await Promise.all(dirs.map(d => $.fs.exists(`${cwd}/${d.name}/.git`).catch(() => false)))
+    return { line: notRepoLine(cwd, dirs.filter((_, i) => isRepo[i]).map(d => d.name)), extra: [] }
   }
-  const status = parseStatus((await git($, top, ['status', '--porcelain=v2', '--branch'])) ?? '')
-  const line = repoLine(top.split('/').pop() ?? top, await packageManager($, top), status)
+  const [pm, log, note] = await Promise.all([
+    packageManager($, top),
+    withHistory ? git($, top, ['log', '-3', '--format=%h %s (%cr)']) : undefined,
+    withHistory ? specNote($, top) : undefined,
+  ])
+  const line = repoLine(top.split('/').pop() ?? top, pm, parseStatus(statusOut ?? ''))
   const extra: string[] = []
-  if (withHistory) {
-    const log = await git($, top, ['log', '-3', '--format=%h %s (%cr)'])
-    if (log) extra.push(`Recent commits:\n${log}`)
-    const note = await specNote($, top)
-    if (note) extra.push(note)
-  }
+  if (log) extra.push(`Recent commits:\n${log}`)
+  if (note) extra.push(note)
   return { line, extra }
 }
 

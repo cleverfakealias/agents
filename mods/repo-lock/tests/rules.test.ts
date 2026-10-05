@@ -61,3 +61,25 @@ describe('paths', () => {
     ])
   })
 })
+
+test('the status line runs git only when the folder, branch or lockfile can have changed', async ($, on) => {
+  const gitRuns: string[] = []
+  on('session.cwd', () => ({ value: 'Z:/r' }))
+  on('fs.exists', (_, e) => ({ value: e.path.replace(/\\/g, '/') === 'Z:/r/pnpm-lock.yaml' }))
+  on('ui.status', () => ({ value: undefined }))
+  on('process.run', (_, e) => {
+    gitRuns.push(e.argv.join(' '))
+    return { value: { exitCode: 0, stdout: 'Z:/r\nmain\n', stderr: '' } }
+  })
+  on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '', stderr: '', interrupted: false } }))
+
+  await $.tool.call({ tool: 'Bash', command: 'cd /z/r && ls' })
+  const settled = gitRuns.length
+  expect(settled).toBeLessThanOrEqual(1) // drawn once, at start or after the first command
+  await $.tool.call({ tool: 'Bash', command: 'cd /z/r && git status' })
+  await $.tool.call({ tool: 'Bash', command: 'cd /z/r && npm run build' })
+  expect(gitRuns.length).toBe(settled)
+  await $.tool.call({ tool: 'Bash', command: 'git switch main' })
+  await $.tool.call({ tool: 'Bash', command: 'cd /z/r && pnpm add zod' })
+  expect(gitRuns.length).toBe(settled + 2)
+})
