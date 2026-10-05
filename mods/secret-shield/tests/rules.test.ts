@@ -35,6 +35,27 @@ describe('shell reads', () => {
   test('grep inside a secret file is caught', () => {
     expect(shellRead('grep SANITY .env')).toBe('.env')
   })
+  test('wrapped, nested and globbed reads are caught', () => {
+    for (const command of [
+      'cat .en*',
+      'cat .env?local',
+      'head *.pem',
+      'echo $(cat .env)',
+      'echo "$(cat .env)"',
+      "bash -c 'cat .env'",
+      'powershell -c Get-Content .env',
+      '$c = Get-Content .env',
+      'time cat .env',
+      'diff .env .env.example',
+      "[IO.File]::ReadAllText('.env')",
+      'cat ${HOME}/.env',
+    ])
+      expect(shellRead(command)).toBeTruthy()
+  })
+  test('globs that also match everyday files pass', () => {
+    for (const command of ['cat *.json', 'grep -n token *', 'cat .*', 'ls .env*', 'cat .env.exam*'])
+      expect(shellRead(command)).toBeUndefined()
+  })
   test('full environment dumps', () => {
     expect(envDump('printenv')).toBe(true)
     expect(envDump('Get-ChildItem Env:')).toBe(true)

@@ -12,6 +12,12 @@ describe('segments', () => {
       ['echo', 'a && b'],
     ])
   })
+  test('quoted parentheses and ${VAR} stay inside their word', () => {
+    expect(segments(`node -e "console.log(1)" && cat \${HOME}/x`)).toEqual([
+      ['node', '-e', 'console.log(1)'],
+      ['cat', '${HOME}/x'],
+    ])
+  })
 })
 
 describe('commands that bring in packages', () => {
@@ -53,6 +59,31 @@ describe('commands that bring in packages', () => {
     expect(names('pip install -e .')).toEqual([])
     expect(names('npm install ./packages/local')).toEqual([])
     expect(names('npm run build && pnpm test')).toEqual([])
+  })
+  test('wrapped, nested and backgrounded installs', () => {
+    for (const command of [
+      "bash -c 'npm i left-pad'",
+      'sh -lc "cd web && npm i left-pad"',
+      'powershell -NoProfile -Command npm i left-pad',
+      'cmd /c npm i left-pad',
+      '(npm i left-pad)',
+      'echo $(npm i left-pad)',
+      'echo "done: $(npm i left-pad)"',
+      'time npm i left-pad',
+      'env CI=1 npm i left-pad',
+      'sudo -E npm i -g left-pad',
+      'corepack pnpm add left-pad',
+      'if ($?) { npm i left-pad }',
+      '$out = npm i left-pad',
+      'npm i left-pad & wait',
+    ])
+      expect(names(command)).toEqual(['left-pad'])
+  })
+  test('redirects are not package names', () => {
+    expect(names('npm install left-pad 2>&1 | tail -5')).toEqual(['left-pad'])
+    expect(names('npm install left-pad > log.txt')).toEqual(['left-pad'])
+    expect(names('npm install left-pad &> log.txt')).toEqual(['left-pad'])
+    expect(names('pip install rich 2>/dev/null')).toEqual(['rich'])
   })
   test('links point at the registry page', () => {
     const [npm] = fromCommand('npm i left-pad')

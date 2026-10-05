@@ -8,24 +8,69 @@ const SECRET_FILE =
 const TEMPLATE = /\.(example|sample|template|dist|defaults)$/i
 
 const base = (p: string) => p.replace(/^.*[\\/]/, '').replace(/^['"]|['"]$/g, '')
-export const isSecretFile = (path: string) => SECRET_FILE.test(base(path)) && !TEMPLATE.test(base(path))
+
+// A glob counts when it can match a secret file and no everyday file: `.en*`,
+// `*.pem` and `id_*` do, `*`, `.*` and `*.json` don't.
+const SECRET_NAMES = ['.env', '.env.local', '.envrc', '.dev.vars', 'tokens.json', 'credentials.json', '.git-credentials',
+  'secrets.yaml', 'service-account.json', 'server.key', 'cert.pem', 'id_rsa', 'id_ed25519', '.netrc', '.pypirc']
+const EVERYDAY_NAMES = ['package.json', 'tsconfig.json', 'README.md', 'index.ts', 'main.py', 'config.yaml', '.gitignore', '.editorconfig']
+function globHitsSecret(glob: string): boolean {
+  try {
+    const re = new RegExp(`^${glob.replace(/[.+^${}()|\\]/g, '\\$&').replace(/\*+/g, '.*').replace(/\?/g, '.')}$`, 'i')
+    return SECRET_NAMES.some(n => re.test(n)) && !EVERYDAY_NAMES.some(n => re.test(n))
+  } catch {
+    return false // an unclosed [ is not a glob we can read
+  }
+}
+
+export const isSecretFile = (path: string) => {
+  const name = base(path)
+  if (TEMPLATE.test(name)) return false
+  return /[*?[]/.test(name) ? globHitsSecret(name) : SECRET_FILE.test(name)
+}
 
 // ── shell reads ───────────────────────────────────────────────────────────────
 const READERS = new Set([
   'cat', 'head', 'tail', 'less', 'more', 'bat', 'type', 'nl', 'od', 'xxd', 'hexdump', 'strings', 'base64',
   'sed', 'awk', 'sort', 'uniq', 'cut', 'tac', 'source', '.', 'cp', 'scp', 'rsync', 'jq', 'yq',
+  'diff', 'cmp', 'comm', 'paste', 'rev', 'fold', 'zcat',
   'get-content', 'gc', 'copy-item', 'import-csv', 'format-hex', 'out-string',
 ])
 const SEARCHERS = new Set(['grep', 'egrep', 'fgrep', 'rg', 'select-string', 'sls', 'findstr'])
 const GIT_SHOWS = new Set(['show', 'diff', 'blame', 'log', 'cat-file'])
 
-// Words of one segment, quotes kept off. Mirrors package-gate's tokenizer.
+// The same tokenizer as package-gate's and repo-lock's, plus `<` as its own word.
+// Splits a shell command into segments (at && || ; | & ( ) $( ` and newlines
+// outside quotes) of whitespace-separated words with their quotes removed. A
+// wrapper (time, env, sudo, corepack, ...) is dropped, and the script of a
+// `bash -c` or `powershell -Command` is split in turn. Good enough for the
+// commands an agent writes; it is a gate on intent, not a shell parser.
+const WRAPPERS = new Set(['time', 'nohup', 'exec', 'sudo', 'nice', 'env', 'xargs', 'corepack', 'timeout', 'stdbuf'])
+const SHELLS = /^(bash|sh|zsh|dash|cmd|powershell|pwsh)(\.exe)?$/i
+const RUN_FLAG = /^(-[a-z]*c|\/c|-command)$/i
+
+function expand(words: string[]): string[][] {
+  let w = words.filter(x => x !== '{' && x !== '}')
+  while (w.length > 1) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0])) w = w.slice(1) // FOO=1 cmd
+    else if (w[0].startsWith('$') && w[1] === '=') w = w.slice(2) // $x = cmd
+    else if (WRAPPERS.has(w[0].toLowerCase())) {
+      w = w.slice(1)
+      while (w.length > 1 && /^-|^\d+[smhd]?$/.test(w[0])) w = w.slice(1) // sudo -E, timeout 30
+    } else break
+  }
+  const run = w.findIndex(x => RUN_FLAG.test(x))
+  if (w.length && SHELLS.test(w[0]) && run > 0 && run < w.length - 1) return segments(w.slice(run + 1).join(' '))
+  return w.length ? [w] : []
+}
+
 export function segments(command: string): string[][] {
   const out: string[][] = []
   let words: string[] = []
   let word = ''
   let quote: string | null = null
   let has = false
+  const subs: (string | null)[] = [] // the quote each open ( or $( returns to at its )
   const endWord = () => {
     if (has) words.push(word)
     word = ''
@@ -33,23 +78,37 @@ export function segments(command: string): string[][] {
   }
   const endSegment = () => {
     endWord()
-    if (words.length) out.push(words)
+    if (words.length) out.push(...expand(words))
     words = []
   }
   for (let i = 0; i < command.length; i++) {
     const c = command[i]
-    if (quote) {
+    const next = command[i + 1]
+    if (quote === '"' && c === '$' && next === '(') {
+      endSegment() // "$(cat x)" still runs cat x
+      subs.push(quote)
+      quote = null
+      i++
+    } else if (quote) {
       if (c === quote) quote = null
       else word += c
-      continue
-    }
-    if (c === '"' || c === "'") {
+    } else if (c === '"' || c === "'") {
       quote = c
       has = true
-    } else if (c === '\n' || c === ';' || c === '|' || (c === '&' && command[i + 1] === '&')) {
-      if (c === '&' || (c === '|' && command[i + 1] === '|')) i++
+    } else if (c === '(' || (c === '$' && next === '(')) {
+      if (c === '$') i++
       endSegment()
-    } else if (c === '<' && command[i + 1] !== '<') {
+      subs.push(null)
+    } else if (c === ')') {
+      endSegment()
+      quote = subs.pop() ?? null
+    } else if (c === '&' && (next === '>' || command[i - 1] === '>' || command[i - 1] === '<')) {
+      word += c // 2>&1 and &> are redirects, not separators
+      has = true
+    } else if (c === '\n' || c === ';' || c === '|' || c === '&' || c === '`') {
+      if ((c === '&' || c === '|') && next === c) i++
+      endSegment()
+    } else if (c === '<' && next !== '<') {
       endWord()
       words.push('<')
     } else if (/\s/.test(c)) {
@@ -65,7 +124,11 @@ export function segments(command: string): string[][] {
 
 const fileWord = (w: string) => w.replace(/^[A-Za-z]+:(?=[^\\/])/, '') // git show HEAD:.env → .env
 
+// PowerShell's .NET calls: [IO.File]::ReadAllText('.env')
+const NET_READ = /::(?:ReadAll(?:Text|Lines|Bytes)|OpenText|OpenRead)\(\s*['"]([^'"]+)['"]/gi
+
 export function shellRead(command: string): string | undefined {
+  for (const m of command.matchAll(NET_READ)) if (isSecretFile(m[1])) return m[1]
   for (const words of segments(command)) {
     const tool = words[0].toLowerCase().replace(/\.exe$/, '')
     const rest = words.slice(1)

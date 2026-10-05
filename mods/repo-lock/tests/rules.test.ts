@@ -21,6 +21,15 @@ describe('pmCalls', () => {
   test('marks global installs', () => {
     expect(first('npm i -g wrangler')?.isGlobal).toBe(true)
   })
+  test('finds calls inside wrappers, subshells and bash -c', () => {
+    expect(first('time npm install')?.pm).toBe('npm')
+    expect(first('corepack yarn add zod')?.pm).toBe('yarn')
+    expect(first("bash -c 'npm i zod'")?.verb).toBe('i')
+    expect(pmCalls('(cd web && npm i zod)')).toEqual({ cd: 'web', calls: [{ pm: 'npm', verb: 'i', subdir: undefined, isGlobal: false }] })
+  })
+  test('checking that a tool exists is not an install', () => {
+    expect(pmCalls('command -v yarn && yarn --version').calls).toEqual([])
+  })
 })
 
 describe('verdict', () => {
