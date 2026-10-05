@@ -115,11 +115,17 @@ export const MARK = '[redacted by secret-shield]'
 // Code, not a value: `process.env.API_KEY`, `getToken()`, `os.environ[...]`. Dotted
 // parts with digits (`MTk4.Cl2F.ZnCj`) still look like a token and stay redacted.
 const CODE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*[([]|^[A-Za-z_$]+(?:\.[A-Za-z_$]+)+[!?]?$/
-const PLACEHOLDER = /^(.{0,3}|.*(example|placeholder|your[_-]|xxx|changeme|redacted|dummy|fake|test|\*\*\*|<|\$\{|\$\().*)$/i
+// Placeholder words count only as whole words: `test-token` is one, `Contest2024` is not.
+const PLACEHOLDER =
+  /^(.{0,3}|.*(your[_-]|xxx|\*\*\*|<|\$\{|\$\().*|(.*[^a-z])?(example|placeholder|changeme|redacted|dummy|fake|test)([^a-z].*)?)$/i
 // Every quantifier around a keyword is bounded: an unbounded `\w*KEYWORD\w*`
 // backtracks quadratically on one long word ("tokentoken..."), and a hook that
 // outruns its budget is skipped, which would store the result unredacted.
-const SECRET_KEY = '[A-Za-z0-9_]{0,64}(?:SECRET|TOKEN|PASSWORD|PASSWD|API_?KEY|PRIVATE_?KEY|AUTH_?KEY|CLIENT_?SECRET|ACCESS_?KEY)[A-Za-z0-9_]{0,64}'
+const KEYWORDS = 'SECRET|TOKEN|PASSWORD|PASSWD|API_?KEY|PRIVATE_?KEY|AUTH_?KEY|CLIENT_?SECRET|ACCESS_?KEY'
+const SECRET_KEY = `[A-Za-z0-9_]{0,64}(?:${KEYWORDS})[A-Za-z0-9_]{0,64}`
+// Env-style names only (upper case) for the rules whose values may hold spaces, so
+// code like `passwordLabel: "Enter your password"` stays readable.
+const ENV_KEY = `(?!PUBLIC_)[A-Z0-9_]{0,64}(?:${KEYWORDS})[A-Z0-9_]{0,64}`
 
 // keep: how many leading groups to keep. code: also pass values that are code.
 type Rule = { re: RegExp; keep?: number; code?: boolean }
@@ -127,7 +133,13 @@ type Rule = { re: RegExp; keep?: number; code?: boolean }
 const RULES: Rule[] = [
   // The body stops at the next ----- line, so a BEGIN with no END scans one block, not the rest.
   { re: /-----BEGIN [A-Z ]{0,40}PRIVATE KEY-----[^-]*(?:-(?!----)[^-]*)*-----END [A-Z ]{0,40}PRIVATE KEY-----/g },
-  // KEY=value and KEY: value lines (env files, YAML, wrangler output, source code)
+  // KEY="a value with spaces" and KEY='...'
+  ...['"', "'"].map(q => ({
+    re: new RegExp(`(\\b${ENV_KEY}\\s*[=:]\\s*${q})([^${q}\\r\\n]{8,})(?=${q})`, 'g'), keep: 1, code: true,
+  })),
+  // KEY=rest of the line, unquoted, as dotenv reads it (spaces, ; and # included)
+  { re: new RegExp(`(^[ \\t]*(?:export[ \\t]+)?${ENV_KEY}[ \\t]*=[ \\t]*)([^\\s"'][^\\r\\n]{7,})`, 'gm'), keep: 1, code: true },
+  // KEY=value and KEY: value anywhere (YAML, wrangler output, source code), up to a space
   { re: new RegExp(`(\\b(?!PUBLIC_)${SECRET_KEY}\\s*[=:]\\s*["']?)([^\\s"',;]{8,})`, 'gi'), keep: 1, code: true },
   // "accessToken": "..." in JSON
   { re: new RegExp(`("(?!public)${SECRET_KEY}"\\s*:\\s*")([^"]{8,})`, 'gi'), keep: 1 },

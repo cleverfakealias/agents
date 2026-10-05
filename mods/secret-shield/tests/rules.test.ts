@@ -69,6 +69,34 @@ describe('redaction', () => {
     expect(redact('PUBLIC_CF_BEACON_TOKEN=' + filler('ab12', 32)).count).toBe(0)
     expect(redact('data:image/png;base64,iVBOR/' + 'sk' + filler('Ab12', 90)).count).toBe(0)
   })
+  test('env values with spaces, ; or a placeholder-like word inside are hidden whole', () => {
+    const phrase = ['correct', 'horse', 'battery', 'staple'].join(' ')
+    for (const line of [
+      `PASSWORD=${phrase}`,
+      `PASSWORD="${phrase}"`,
+      `export DB_PASSWORD='${phrase}'`,
+      `ADMIN_TOKEN = ${phrase}`,
+    ]) {
+      const r = redact(line)
+      expect(r.text).not.toContain('horse')
+      expect(r.count).toBe(1)
+    }
+    expect(redact(`DB_PASSWORD=Con${'test'}2024x`).text).not.toContain('2024')
+    expect(redact(`SECRET_KEY=ab;${filler('cdefgh12', 20)}`).text).not.toContain('cdefgh')
+  })
+  test('placeholder words still count when they stand alone', () => {
+    expect(redact('API_TOKEN=test-token-value').count).toBe(0)
+    expect(redact('DB_PASSWORD="change me later"').count).toBe(1)
+    expect(redact('DB_PASSWORD="changeme"').count).toBe(0)
+  })
+  test('UI strings and code with spaces stay readable', () => {
+    for (const line of [
+      'passwordLabel: "Enter your password"',
+      'const token = await getToken()',
+      'API_KEY = os.getenv("API_KEY")',
+    ])
+      expect(redact(line).text).toBe(line)
+  })
   test('code that names a secret stays readable', () => {
     for (const line of [
       'const apiKey = process.env.API_KEY',
