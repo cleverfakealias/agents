@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { fromCommand, fromManifestEdit, segments } from '../hooks/rules'
+import { LOOKS_LIKE_INSTALL, fromCommand, fromManifestEdit, segments } from '../hooks/rules'
 
 const names = (command: string, local: string[] = []) => fromCommand(command, n => local.includes(n)).map(p => p.name)
 
@@ -95,6 +95,19 @@ describe('commands that bring in packages', () => {
     const [pip] = fromCommand('pip install requests')
     expect(npm.link).toBe('https://www.npmjs.com/package/left-pad')
     expect(pip.link).toBe('https://pypi.org/project/requests/')
+  })
+})
+
+describe('the fail-closed fallback', () => {
+  test('knows an install when it sees one', () => {
+    expect(LOOKS_LIKE_INSTALL.test('pnpm --filter web add zod')).toBe(true)
+    expect(LOOKS_LIKE_INSTALL.test('npx cowsay')).toBe(true)
+    expect(LOOKS_LIKE_INSTALL.test('git status && npm run build')).toBe(false)
+  })
+  test('stays inside its 1 s budget on a long command', () => {
+    const start = performance.now()
+    LOOKS_LIKE_INSTALL.test('go '.repeat(16000)) // 0.8 s before
+    expect(performance.now() - start).toBeLessThan(50)
   })
 })
 

@@ -7,13 +7,37 @@ export type Verdict = { deny: string } | { note: string } | undefined
 const HEREDOC_MAX_LINES = 40
 
 // Drop quoted spans so operators inside strings ("a && b", 'x ?? y') don't match.
-export const stripQuoted = (command: string): string =>
-  command.replace(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/gs, '""')
+// A scan, not a regex: a regex reads an unclosed quote to the end once per quote
+// character, which is quadratic. Here the first unclosed quote of a kind marks
+// the rest of that kind as plain text.
+export function stripQuoted(command: string): string {
+  let out = ''
+  const unclosed = new Set<string>()
+  for (let i = 0; i < command.length; i++) {
+    const q = command[i]
+    if ((q !== '"' && q !== "'") || unclosed.has(q)) {
+      out += q
+      continue
+    }
+    let j = i + 1
+    while (j < command.length && command[j] !== q) j += command[j] === '\\' ? 2 : 1
+    if (j >= command.length) {
+      unclosed.add(q)
+      out += q
+    } else {
+      out += '""'
+      i = j
+    }
+  }
+  return out
+}
 
+// Every unbounded run below stops at a character the pattern needs next, or at a
+// bound, so one long command can't make a rule backtrack quadratically.
 const INLINE_SCRIPT =
   /(^|[\s;&|(])(python3?|py|node)(\.exe)?\s+(-c\s|-e\s|--eval\s|-\s*<<|-\s*$|<<)/m
 const WRITES_FILES =
-  /writeFileSync|writeFile\(|appendFileSync|\.write_text\(|\.write_bytes\(|open\([^)]*,\s*['"][wa]|\bshutil\.(copy|move)/
+  /writeFileSync|writeFile\(|appendFileSync|\.write_text\(|\.write_bytes\(|open\([^),\n]*,\s*['"][wa]|\bshutil\.(copy|move)/
 
 export function bash(command: string): Verdict {
   const lines = command.split('\n').length
@@ -40,7 +64,7 @@ export function bash(command: string): Verdict {
         'shell-sense: pwsh (PowerShell 7) is not installed here. Use the PowerShell tool, which runs Windows PowerShell 5.1.',
     }
   }
-  if (/(^|[\s;&|])tar\s[^|;&]*\s['"]?[A-Za-z]:[\\/]/.test(command) && !/--force-local/.test(command)) {
+  if (/(^|[\s;&|])tar\s[^|;&\n]{0,300}\s['"]?[A-Za-z]:[\\/]/.test(command) && !/--force-local/.test(command)) {
     return {
       deny:
         'shell-sense: GNU tar reads "C:" as a remote host. Add --force-local, or use a /c/... path.',
@@ -54,6 +78,16 @@ export function bash(command: string): Verdict {
     }
   }
   return undefined
+}
+
+// The body of git commit -m @'...'@: the opener by regex, the close by indexOf,
+// so an unclosed here-string is read to the end once.
+function hereStringBody(command: string): string | undefined {
+  const open = /git\s+commit\b[^\n]{0,300}?-m\s+@(['"])\r?\n/.exec(command)
+  if (!open) return undefined
+  const start = open.index + open[0].length
+  const close = command.indexOf(`\n${open[1]}@`, start - 1)
+  return close < 0 ? undefined : command.slice(start, close)
 }
 
 export function powershell(command: string): Verdict {
@@ -71,8 +105,7 @@ export function powershell(command: string): Verdict {
         'shell-sense: Windows PowerShell 5.1 has no && or || chain operators. Use "A; if ($?) { B }" to run B only when A succeeds, or "A; B" to run both.',
     }
   }
-  const hereString = command.match(/git\s+commit\b[^\n]*-m\s+@(['"])\r?\n([\s\S]*?)\r?\n\1@/)
-  if (hereString && hereString[2].includes('"')) {
+  if (hereStringBody(command)?.includes('"')) {
     return {
       deny:
         'shell-sense: PowerShell 5.1 splits a native argument at embedded double quotes, so git reads parts of this ' +

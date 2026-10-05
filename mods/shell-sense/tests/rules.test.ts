@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { bash, powershell } from '../hooks/rules'
+import { bash, powershell, stripQuoted } from '../hooks/rules'
 
 const kind = (v: ReturnType<typeof bash>) => (v === undefined ? 'pass' : 'deny' in v ? 'deny' : 'note')
 
@@ -47,6 +47,31 @@ describe('powershell', () => {
   })
   test('notes 2>&1 on a native program', () => {
     expect(kind(powershell('pnpm build 2>&1'))).toBe('note')
+  })
+})
+
+describe('cost', () => {
+  test('quotes are stripped as before, unclosed ones included', () => {
+    expect(stripQuoted(`echo "a && b" 'c ?? d' x`)).toBe(`echo "" "" x`)
+    expect(stripQuoted(`it's "a && b"`)).toBe(`it's ""`)
+    expect(stripQuoted(`say "esc \\" quote" && go`)).toBe(`say "" && go`)
+  })
+  test('the here-string rule still reads the message body', () => {
+    expect(kind(powershell(`git commit -m @'\n'@`))).toBe('pass')
+    expect(kind(powershell(`git commit -m @"\nsay "hi"\n"@`))).toBe('deny')
+  })
+  test('stays linear on commands built to backtrack', () => {
+    const n = 16000 // each took 0.2 to 0.6 s before; the cost grew with the square of n
+    for (const run of [
+      () => powershell('x' + '"\\'.repeat(n)),
+      () => powershell("git commit -m @'\n".repeat(n)),
+      () => bash(' tar a'.repeat(n)),
+      () => bash('node -e x ' + 'open(a,'.repeat(n)),
+    ]) {
+      const start = performance.now()
+      run()
+      expect(performance.now() - start).toBeLessThan(50)
+    }
   })
 })
 

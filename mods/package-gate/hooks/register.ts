@@ -1,6 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-import { type Pkg, fromCommand, fromManifestEdit, isManifest } from './rules'
+import { LOOKS_LIKE_INSTALL, type Pkg, fromCommand, fromManifestEdit, isManifest } from './rules'
 
 const INSTALL = 'Install'
 const DECLINE = "Don't install"
@@ -58,8 +58,6 @@ async function manifestDeny($: EngineInterface, path: string, edit: { old?: stri
 
 // If a gate hook throws or times out, the engine would skip it and run the call.
 // Fail closed for anything that looks like an install; let the rest through.
-const LOOKS_LIKE_INSTALL =
-  /\b(npm|pnpm|yarn|bun|pip3?|uv|pipx|poetry|cargo|go|gem|winget|choco|scoop|brew)\s+(\S+\s+)*(install|i|add|dlx|get)\b|\b(npx|bunx|uvx)\s|install-(module|package|script)/i
 const FAILED = 'package-gate could not check this call, so it did not run. Ask the user before installing anything.'
 
 export const register: Register = on => {

@@ -288,6 +288,12 @@ export function fromSegment(raw: string[], hasLocalBin: (name: string) => boolea
   return []
 }
 
+// The .catch fallback's test, when the parse itself failed. At most 8 words between
+// the tool and the verb: an unbounded (\S+\s+)* is quadratic on "go go go ...",
+// and the .catch has only a 1 s budget before the call runs unchecked.
+export const LOOKS_LIKE_INSTALL =
+  /\b(npm|pnpm|yarn|bun|pip3?|uv|pipx|poetry|cargo|go|gem|winget|choco|scoop|brew)\s+(\S+\s+){0,8}(install|i|add|dlx|get)\b|\b(npx|bunx|uvx)\s|install-(module|package|script)/i
+
 export function fromCommand(command: string, hasLocalBin: (name: string) => boolean = () => false): Pkg[] {
   const seen = new Set<string>()
   return segments(command)
