@@ -1,0 +1,5 @@
+{
+  "name": "secret-shield",
+  "version": "0.1.0",
+  "description": "Keeps secrets out of transcripts: blocks shell reads of secret files, hides token values in tool output, and checks git add and push."
+}

@@ -22,7 +22,8 @@ scaffold/                 ← copy this into your repo
     │   └── checks.json   the commands it runs (empty until you fill it in)
     └── skills/zenn/      /zenn: optional spec-first workflow for larger work
 providers.md              notes for Cursor / Copilot / Codex / Gemini / Devin
-tests/                    node --test: checks the hook and the scaffold's own rules
+mods/                     user-level Claude Code mods (see mods/README.md)
+tests/                    node --test "tests/*.test.mjs": the hook, the scaffold rules, the mods
 ```
 
 ## Setup
@@ -105,7 +106,7 @@ deny and ask rules hold in all of them.
 ## Working on this repo
 
 ```bash
-node --test
+node --test "tests/*.test.mjs"
 ```
 
 The tests exercise `checks.mjs` and enforce the scaffold's own rules (file size

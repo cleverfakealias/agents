@@ -1,0 +1,5 @@
+{
+  "name": "shell-sense",
+  "version": "0.1.0",
+  "description": "Stops Windows shell mistakes before they run: long heredocs, inline edit scripts, PowerShell 5.1 syntax, mangled paths."
+}

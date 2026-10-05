@@ -24,8 +24,9 @@ copied into target repos, never executed here.
 
 ## Tests
 
-`node --test` exercises `checks.mjs` and enforces the rules above (size limits,
-hook paths, rule syntax). Run it before committing.
+`node --test "tests/*.test.mjs"` exercises `checks.mjs`, enforces the rules above (size limits,
+hook paths, rule syntax), and runs `claude plugin validate` and `claude plugin test`
+on each mod in `mods/`. Run it before committing.
 
 ## Smoke test
 

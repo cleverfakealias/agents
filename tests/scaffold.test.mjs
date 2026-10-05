@@ -1,4 +1,4 @@
-// Run with: node --test
+// Run with: node --test "tests/*.test.mjs"
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";

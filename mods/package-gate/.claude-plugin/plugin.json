@@ -1,0 +1,5 @@
+{
+  "name": "package-gate",
+  "version": "0.1.0",
+  "description": "Asks you before any package install (npm, pnpm, pip, uv, npx, winget and more) and shows a registry link for each package."
+}
