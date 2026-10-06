@@ -1,17 +1,37 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { compact, crossed, sparkline, statusText, warning } from '../hooks/rules'
+import {
+  averageGrowth,
+  compact,
+  crossed,
+  gauge,
+  lastDelta,
+  resetIn,
+  signed,
+  sparkline,
+  turnsLeft,
+  warning,
+} from '../hooks/rules'
 
-describe('statusText', () => {
-  test('first reading shows fill and window', () => {
-    expect(statusText({ tokens: 134_400, window: 1_000_000, percent: 13 }, [134_400])).toBe('context 13% · 134k/1.0M')
-  })
-  test('later readings add growth, a sparkline and the 5-hour limit', () => {
-    const text = statusText({ tokens: 300_000, window: 1_000_000, percent: 30 }, [100_000, 200_000, 300_000], 42.4)
-    expect(text).toBe('context 30% · 300k/1.0M · +100k last turn · ▃▅█ · 5h limit 42%')
-  })
+describe('estimates', () => {
   test('a compaction shows as a drop', () => {
-    expect(statusText({ tokens: 40_000, window: 200_000, percent: 20 }, [180_000, 40_000])).toContain('−140k last turn')
+    expect(signed(lastDelta([180_000, 40_000])!)).toBe('−140k')
+  })
+  test('average growth skips compactions', () => {
+    expect(averageGrowth([100, 110, 30, 50])).toBe(15)
+    expect(averageGrowth([100])).toBeUndefined()
+  })
+  test('turns left counts whole turns to the limit', () => {
+    expect(turnsLeft(100_000, 167_000, 6_000)).toBe(11)
+    expect(turnsLeft(100_000, 167_000, undefined)).toBeUndefined()
+  })
+  test('a sliver of use still shows one cell', () => {
+    expect(gauge(100, 200_000, 10)).toEqual({ filled: '█', empty: '░'.repeat(9) })
+  })
+  test('resets read as a countdown within a day', () => {
+    const now = Date.parse('2026-10-06T10:00:00Z')
+    expect(resetIn('2026-10-06T12:10:00Z', now)).toBe('in 2h 10m')
+    expect(resetIn('2026-10-06T10:20:00Z', now)).toBe('in 20m')
   })
 })
 

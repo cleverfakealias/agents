@@ -1,5 +1,6 @@
 {
   "name": "context-meter",
-  "version": "0.1.0",
-  "description": "Shows context fill, growth per turn and the 5-hour limit in the status line, with a toast at 75% and 90%. Works in the Desktop Code tab."
+  "version": "0.2.0",
+  "description": "A context band above the prompt: fill, growth per turn, turns to autocompact and the 5-hour limit, opening into the /context breakdown, limits, cost and memory files. A toast at 75% and 90%. Terminal and Desktop Code tab.",
+  "types": "./types/index.d.ts"
 }
