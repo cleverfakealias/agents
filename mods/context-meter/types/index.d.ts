@@ -38,9 +38,10 @@ export type Setup = {
 }
 
 // A handoff in progress: queued for the end of the turn, the doc being written,
-// the compaction running, then the doc read back.
+// the context being cleared, then the doc read back. `/clear` starts a new
+// session with empty state, so the read-back step sets its phase afresh.
 export type Handoff = {
-  phase: 'queued' | 'writing' | 'compacting' | 'reading'
+  phase: 'queued' | 'writing' | 'clearing' | 'reading'
   path?: string
   // When the doc was asked for; a doc older than this is stale.
   since?: number

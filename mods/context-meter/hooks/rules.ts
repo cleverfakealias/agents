@@ -32,27 +32,25 @@ export const level = (percent: number) => (percent >= 90 ? 'error' : percent >= 
 // too. Set a little above the measured knee: no results exist yet for the 5.x models.
 export const TIERS = {
   fading: { tokens: 200_000, share: 0.35 },
+  // The dumb zone, and the handoff: a doc, a fresh context, the doc read back.
+  // The doc comes here, while the model is still sharp, not at autocompact.
   dumb: { tokens: 350_000, share: 0.5 },
-  // Where the meter writes a handoff doc, compacts, and reads the doc back.
-  handoff: { tokens: 500_000, share: 0.75 },
 } as const
 
-export type Marks = { fading: number; dumb: number; handoff: number }
+export type Marks = { fading: number; dumb: number }
 
 // With `autoCompactAt`, the handoff also comes before the engine's own compaction.
-export const marks = (window: number, autoCompactAt?: number): Marks => ({
-  fading: Math.min(TIERS.fading.tokens, Math.round(window * TIERS.fading.share)),
-  dumb: Math.min(TIERS.dumb.tokens, Math.round(window * TIERS.dumb.share)),
-  handoff: Math.min(
-    TIERS.handoff.tokens,
-    Math.round(window * TIERS.handoff.share),
+export function marks(window: number, autoCompactAt?: number): Marks {
+  const dumb = Math.min(
+    TIERS.dumb.tokens,
+    Math.round(window * TIERS.dumb.share),
     autoCompactAt ? Math.round(autoCompactAt * 0.9) : Infinity,
-  ),
-})
+  )
+  return { fading: Math.min(TIERS.fading.tokens, Math.round(window * TIERS.fading.share), dumb), dumb }
+}
 
-// 0 under the fading mark, 1 fading, 2 dumb zone, 3 handoff.
-export const stageOf = (tokens: number, m: Marks) =>
-  tokens >= m.handoff ? 3 : tokens >= m.dumb ? 2 : tokens >= m.fading ? 1 : 0
+// 0 under the fading mark, 1 fading, 2 dumb zone (the handoff).
+export const stageOf = (tokens: number, m: Marks) => (tokens >= m.dumb ? 2 : tokens >= m.fading ? 1 : 0)
 
 export const contextLevel = (tokens: number, m: Marks) =>
   tokens >= m.dumb ? 'error' : tokens >= m.fading ? 'warning' : 'success'
@@ -65,7 +63,7 @@ export const zoneName = (tokens: number, m: Marks): Zone =>
 export function zoneHint(zone: Zone, m: Marks): string {
   if (zone === 'sharp') return `under ${compact(m.fading)}: full recall`
   if (zone === 'quality fading') return `${compact(m.fading)}–${compact(m.dumb)}: answers tend to slip`
-  return `past ${compact(m.dumb)}: handoff and compact at ${compact(m.handoff)}`
+  return `past ${compact(m.dumb)}: handoff, then a fresh context`
 }
 
 // Growth of the last turn; a negative value is a compaction.
@@ -176,8 +174,8 @@ export function cardSvg(c: Card): string {
   const color = COLORS[contextLevel(c.tokens, m)]
   const zone = zoneName(c.tokens, m)
   const sub = c.status ?? [c.growth, c.left, c.windowNote].filter(Boolean).join(' · ')
-  // Ticks across the ring at the fading, dumb-zone and handoff marks.
-  const ticks = [m.fading, m.dumb, m.handoff].map(t => {
+  // Ticks across the ring at the fading and dumb-zone marks.
+  const ticks = [m.fading, m.dumb].map(t => {
     const a = ((t / c.window) * 360 - 90) * (Math.PI / 180)
     const [x1, y1, x2, y2] = [48 + (r - 7) * Math.cos(a), 48 + (r - 7) * Math.sin(a), 48 + (r + 7) * Math.cos(a), 48 + (r + 7) * Math.sin(a)]
     return `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke-width="2" class="tick"/>`
@@ -216,8 +214,8 @@ export function cardSvg(c: Card): string {
   )
 }
 
-// The highest stage newly reached (1 fading, 2 dumb zone, 3 handoff), or
-// undefined. A drop (after a compaction) re-arms the stages above the new reading.
+// The highest stage newly reached (1 fading, 2 dumb zone), or undefined. A drop
+// (after a compaction) re-arms the stages above the new reading.
 export function crossed(stage: number, warned: number): { level?: number; warned: number } {
   if (stage > warned) return { level: stage, warned: stage }
   return { warned: Math.min(warned, stage) }
@@ -225,10 +223,9 @@ export function crossed(stage: number, warned: number): { level?: number; warned
 
 export function warning(stage: number, r: Reading, m: Marks): string {
   const fill = `Context holds ${compact(r.tokens)} (${r.percent}% of ${compact(r.window)}).`
-  if (stage >= 3) return `${fill} At the end of this turn Claude writes a handoff doc, compacts, and reads the doc back.`
   if (stage >= 2)
-    return `${fill} Past ${compact(m.dumb)} is the dumb zone: recall and reasoning drop, and each turn costs more. Hand off at a natural break, or start a fresh session.`
-  return `${fill} Past ${compact(m.fading)}, answer quality tends to slip. Plan a handoff at the next natural break.`
+    return `${fill} Past ${compact(m.dumb)} is the dumb zone: recall and reasoning drop, and each turn costs more. When this turn ends, Claude writes a handoff doc, the context is cleared, and Claude reads the doc back.`
+  return `${fill} Past ${compact(m.fading)}, answer quality tends to slip. The handoff runs at ${compact(m.dumb)}.`
 }
 
 // ── the handoff ───────────────────────────────────────────────────────────────
@@ -243,7 +240,7 @@ export function handoffPath(root: string, sessionId: string, now: number): strin
 
 export const handoffPrompt = (path: string, r: Reading) =>
   [
-    `Context holds ${compact(r.tokens)} tokens. Before this conversation is compacted, write a handoff doc to ${path} with the Write tool (replace the file if it exists).`,
+    `Context holds ${compact(r.tokens)} tokens. Before this context is cleared, write a handoff doc to ${path} with the Write tool (replace the file if it exists).`,
     'Write it for a fresh session that has none of this conversation. Use these sections:',
     '1. Goal: what the user wants, in their words where it matters.',
     '2. Current state: what is done, what is in progress, the branch and uncommitted changes.',
@@ -254,12 +251,13 @@ export const handoffPrompt = (path: string, r: Reading) =>
     'Keep it under 300 lines. Do not start new work. When it is written, reply with one line.',
   ].join('\n')
 
+// For the fallback, when `/clear` is refused.
 export const compactInstructions = (path: string) =>
   `A handoff doc for this session is at ${path}. Name that path in the summary as the source of truth for state and next steps. Keep the user's latest request and any question still open to them.`
 
-export const readPrompt = (path: string) =>
+export const readPrompt = (path: string, how: 'cleared' | 'compacted') =>
   [
-    `This conversation was just compacted. Read the handoff doc at ${path}.`,
+    `The context was just ${how} for a handoff. Read the handoff doc at ${path}.`,
     'Check it against the repo: git status, and the files it names.',
     'Then say in a few lines what is stale or wrong, and what the next step is. Wait for me before you start it.',
   ].join('\n')

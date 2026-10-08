@@ -79,15 +79,16 @@ test('the card is one SVG with the figures and escaped text', () => {
 })
 
 describe('marks', () => {
-  test('a 1M window warns at 200k, 350k and hands off at 500k', () => {
-    expect(marks(1_000_000)).toEqual({ fading: 200_000, dumb: 350_000, handoff: 500_000 })
-    expect(marks(1_000_000, 967_000).handoff).toBe(500_000)
+  test('a 1M window warns at 200k and hands off at 350k', () => {
+    expect(marks(1_000_000)).toEqual({ fading: 200_000, dumb: 350_000 })
+    expect(marks(1_000_000, 967_000).dumb).toBe(350_000)
   })
   test('a 200k window warns at a share of it instead', () => {
-    expect(marks(200_000, 167_000)).toEqual({ fading: 70_000, dumb: 100_000, handoff: 150_000 })
+    expect(marks(200_000, 167_000)).toEqual({ fading: 70_000, dumb: 100_000 })
   })
   test('the handoff comes before an early autocompact', () => {
-    expect(marks(1_000_000, 400_000).handoff).toBe(360_000)
+    expect(marks(1_000_000, 300_000)).toEqual({ fading: 200_000, dumb: 270_000 })
+    expect(marks(1_000_000, 200_000)).toEqual({ fading: 180_000, dumb: 180_000 })
   })
   test('the zone follows tokens, not capacity', () => {
     const m = marks(1_000_000)
@@ -99,7 +100,7 @@ describe('marks', () => {
       'dumb zone',
     ])
     expect([100_000, 250_000, 400_000].map(t => contextLevel(t, m))).toEqual(['success', 'warning', 'error'])
-    expect([100_000, 250_000, 400_000, 600_000].map(t => stageOf(t, m))).toEqual([0, 1, 2, 3])
+    expect([100_000, 250_000, 400_000].map(t => stageOf(t, m))).toEqual([0, 1, 2])
   })
 })
 
@@ -113,7 +114,8 @@ describe('handoff', () => {
     expect(handoffPrompt(path, { tokens: 500_000, window: 1_000_000, percent: 50 })).toContain(`write a handoff doc to ${path}`)
     expect(handoffPrompt(path, { tokens: 500_000, window: 1_000_000, percent: 50 })).toContain('Next steps')
     expect(compactInstructions(path)).toContain(path)
-    expect(readPrompt(path)).toContain(`Read the handoff doc at ${path}`)
+    expect(readPrompt(path, 'cleared')).toContain(`just cleared for a handoff. Read the handoff doc at ${path}`)
+    expect(readPrompt(path, 'compacted')).toContain('just compacted')
   })
 })
 
@@ -140,7 +142,7 @@ describe('estimates', () => {
 })
 
 describe('warnings', () => {
-  test('each stage warns once: fading, dumb zone, handoff', () => {
+  test('each stage warns once: fading, then the dumb zone', () => {
     let s = crossed(0, 0)
     expect(s.level).toBeUndefined()
     s = crossed(1, s.warned)
@@ -149,8 +151,7 @@ describe('warnings', () => {
     expect(s.level).toBeUndefined()
     s = crossed(2, s.warned)
     expect(s.level).toBe(2)
-    s = crossed(3, s.warned)
-    expect(s.level).toBe(3)
+    expect(crossed(2, s.warned).level).toBeUndefined()
   })
   test('a drop after a compaction re-arms the stages', () => {
     let s = crossed(2, 0)
@@ -161,9 +162,9 @@ describe('warnings', () => {
   test('each text names the step to take', () => {
     const m = marks(1_000_000)
     const r = (tokens: number) => ({ tokens, window: 1_000_000, percent: tokens / 10_000 })
-    expect(warning(1, r(210_000), m)).toContain('Past 200k, answer quality tends to slip')
+    expect(warning(1, r(210_000), m)).toContain('Past 200k, answer quality tends to slip. The handoff runs at 350k.')
     expect(warning(2, r(360_000), m)).toContain('dumb zone')
-    expect(warning(3, r(510_000), m)).toContain('writes a handoff doc')
+    expect(warning(2, r(360_000), m)).toContain('Claude writes a handoff doc, the context is cleared')
   })
 })
 

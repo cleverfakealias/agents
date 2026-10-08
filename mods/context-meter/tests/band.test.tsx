@@ -17,7 +17,7 @@ const breakdown = {
   mcpTools: [],
 } as unknown as SessionContextBreakdown
 
-// A 200k window: the marks are 70k (fading), 100k (dumb zone) and 150k (handoff).
+// A 200k window: the marks are 70k (fading) and 100k (dumb zone, where the handoff runs).
 // `compactAt` stands for `autoCompactWindow`: the window the breakdown measures against.
 const usage = (percent: number, args?: SessionUsageArgs, compactAt = 200_000): SessionUsage => ({
   startedAt: 0,
@@ -74,13 +74,15 @@ const answer = (on: On, percent: number, compactAt?: number) => {
     // Files the model wrote with its own tools.
     docs: [] as string[],
     isBusy: false,
+    // Commands the session refuses.
+    refused: [] as string[],
   }
   on('session.usage', (_$, args) => ({ value: usage(percent, args, compactAt) }))
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.model', () => ({ value: 'claude-opus-5-5[1m]' }))
   on('config.list', () => ({ value: [MODEL_ROW] }))
   on('command.run', (_$, e) => {
-    if (seen.isBusy) throw new Error('busy')
+    if (seen.isBusy || seen.refused.includes(e.command)) throw new Error('busy')
     seen.runs.push(`/${e.command} ${e.args}`)
     return { text: '' }
   })
@@ -117,8 +119,10 @@ const turnEnds = ($: Engine) =>
   $.turn.complete({ turnId: 't', answer: 'ok', durationMs: 1, isAborted: false, reason: 'answer' })
 
 // Lets the steps the hooks leave running (not awaited) finish.
+// The kit's types leave out timers, but the test runtime has them.
+const tick = (globalThis as unknown as { setTimeout: (fn: () => void, ms: number) => unknown }).setTimeout
 const settle = async () => {
-  for (let i = 0; i < 50; i++) await Promise.resolve()
+  for (let i = 0; i < 20; i++) await new Promise<void>(resolve => tick(resolve, 0))
 }
 
 const BAND = { plugin: 'context-meter', component: 'AbovePrompt' } as const
@@ -132,7 +136,7 @@ test('desktop draws the big card, the terminal a text row with the same figures'
   expect(card?.props.alt).toBe('Context 60% full, 120k of 200k tokens')
   // 120k: past the 100k dumb-zone mark. The model and effort live in the controls, not the card.
   expect(String(card?.props.source)).toContain('Dumb zone')
-  expect(String(card?.props.source)).toContain('handoff and compact at 150k')
+  expect(String(card?.props.source)).toContain('past 100k: handoff, then a fresh context')
   expect(String(card?.props.source)).not.toContain('Opus')
   expect(await desk.find({ key: 'model-opus' })).toBeDefined()
   expect(await desk.find({ key: 'handoff' })).toBeDefined()
@@ -198,7 +202,7 @@ test('effort buttons run /effort', async ($, on) => {
   await ui.unmount()
 })
 
-test('Handoff: Claude writes the doc, the session compacts with it named, then Claude reads it back', async ($, on) => {
+test('Handoff: Claude writes the doc, the context is cleared, then Claude reads the doc back', async ($, on) => {
   const seen = answer(on, 60)
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
@@ -213,19 +217,29 @@ test('Handoff: Claude writes the doc, the session compacts with it named, then C
   seen.docs.push(DOC)
   await turnEnds($)
   await settle()
-  expect(seen.runs.length).toBe(1)
-  expect(seen.runs[0]).toContain(`/compact A handoff doc for this session is at ${DOC}`)
+  expect(seen.runs).toEqual(['/clear '])
+  expect(seen.prompts[1]).toContain(`just cleared for a handoff. Read the handoff doc at ${DOC}`)
+  expect(String((await ui.find({ type: 'Svg' }))?.props.source)).toContain('handoff 3/3')
 
-  // What `/compact` raises in a session.
-  await $.session.compact({ trigger: 'manual', messages: SUMMARY })
-  await settle()
-  expect(seen.compactions).toEqual(['manual'])
-  expect(seen.prompts[1]).toContain(`Read the handoff doc at ${DOC}`)
-
+  // The read-back turn ends the handoff.
   await turnEnds($)
   await settle()
-  const card = await ui.find({ type: 'Svg' })
-  expect(String(card?.props.source)).not.toContain('handoff 3/3')
+  expect(String((await ui.find({ type: 'Svg' }))?.props.source)).not.toContain('handoff 3/3')
+  await ui.unmount()
+})
+
+test('where /clear is refused, the handoff compacts with the doc named', async ($, on) => {
+  const seen = answer(on, 60)
+  seen.refused.push('clear')
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
+  await ui.press({ key: 'handoff' })
+  seen.docs.push(DOC)
+  await turnEnds($)
+  await settle()
+  expect(seen.runs.length).toBe(1)
+  expect(seen.runs[0]).toContain(`/compact A handoff doc for this session is at ${DOC}`)
+  expect(seen.prompts[1]).toContain('just compacted for a handoff')
   await ui.unmount()
 })
 
@@ -262,8 +276,8 @@ test("near the hard limit the engine's compaction runs", async ($, on) => {
   expect(seen.compactions).toEqual(['auto'])
 })
 
-test('crossing the handoff mark queues the handoff for the end of the turn', async ($, on) => {
-  const seen = answer(on, 80)
+test('entering the dumb zone queues the handoff for the end of the turn', async ($, on) => {
+  const seen = answer(on, 60)
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
   expect(seen.toasts.some(t => t.includes('writes a handoff doc'))).toBe(true)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
@@ -306,7 +320,7 @@ test('the toggle opens the breakdown, limits, cost and memory files, and closes 
     expect(await ui.find({ type: 'Text', text: /deferred/ })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: /\$1\.84 · cache hit 90%/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /\.claude\/CLAUDE\.md 1k/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /handoff at 150k · autocompact at 167k/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /handoff at 100k · autocompact at 167k/ })).toBeDefined()
     await ui.press({ key: 'toggle' })
     expect(await ui.find({ type: 'Text', text: /^Messages$/ })).toBeUndefined()
     await ui.unmount()
