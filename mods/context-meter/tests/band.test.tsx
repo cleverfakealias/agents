@@ -80,13 +80,14 @@ const answer = (on: On, percent: number, compactAt?: number) => {
     failReadBack: false,
     // The fill the session reports; a test moves it.
     percent,
+    // The plugin's store, which outlives a session and is shared by every session.
+    store: new Map<string, unknown>(),
   }
   on('session.usage', (_$, args) => ({ value: usage(seen.percent, args, compactAt) }))
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.model', () => ({ value: 'claude-opus-5-5[1m]' }))
   on('config.list', () => ({ value: [MODEL_ROW] }))
-  // The plugin's store, which outlives a session.
-  const store = new Map<string, unknown>()
+  const { store } = seen
   on('store.get', (_$, e) => ({ value: store.get(e.key) }))
   on('store.set', (_$, e) => {
     store.set(e.key, e.value)
@@ -286,6 +287,27 @@ test('a read-back the old session could not send rides on the first prompt of th
   // Once only.
   const again = await typed($, 'and now?')
   expect((again.context ?? []).join('\n')).not.toContain('Read the handoff doc')
+  await ui.unmount()
+})
+
+test("another project's pending read-back is left for its own session", async ($, on) => {
+  const seen = answer(on, 20)
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  // The store is one file for every open session: a handoff in another repo
+  // parked its job there a minute ago.
+  const other = { path: 'Z:/other/.claude/handoff/2026-10-08-0516-34e20210.md', at: NOW - 60_000, root: 'Z:\\other' }
+  seen.store.set('pending-handoff', other)
+  const first = await typed($, 'where were we?')
+  expect((first.context ?? []).join('\n')).not.toContain('Read the handoff doc')
+  expect(seen.store.get('pending-handoff')).toEqual(other)
+  // The cooldown after a clear is per repo too: this one may hand off at once.
+  seen.store.set('last-clear', { 'Z:/other': NOW - 1000 })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
+  seen.percent = 60
+  await turnEnds($)
+  await settle()
+  expect(seen.toasts.some(t => t.includes('baseline is too large'))).toBe(false)
+  expect(seen.prompts.some(t => t.includes('write a handoff doc'))).toBe(true)
   await ui.unmount()
 })
 

@@ -53,10 +53,32 @@ const PHASE_TEXT: Record<Handoff['phase'], string> = {
 
 // `$.store` outlives the session, which `/clear` ends: the handoff in flight and
 // the time of the last clear live there, so the new session can finish the job
-// and does not start another one at once.
+// and does not start another one at once. The store is one file for the whole
+// plugin, shared by every open session of every project, so each entry names
+// the repo it belongs to and no other session touches it.
 const PENDING = 'pending-handoff'
 const LAST_CLEAR = 'last-clear'
-type Pending = { path: string; at: number }
+type Pending = { path: string; at: number; root?: string }
+type LastClear = Record<string, number>
+
+const sameRoot = (a: string | undefined, b: string) => a !== undefined && a.replace(/\\/g, '/') === b.replace(/\\/g, '/')
+
+async function lastClearAt($: EngineInterface): Promise<number> {
+  const v = await $.store.get(LAST_CLEAR)
+  // An entry from before the store was keyed by repo counts for every one.
+  if (typeof v === 'number') return v
+  const root = await $.session.root()
+  const byRoot = (v ?? {}) as LastClear
+  return byRoot[root.replace(/\\/g, '/')] ?? 0
+}
+
+async function markClear($: EngineInterface, at: number) {
+  const v = await $.store.get(LAST_CLEAR)
+  const root = (await $.session.root()).replace(/\\/g, '/')
+  const byRoot: LastClear = typeof v === 'object' && v !== null ? { ...(v as LastClear) } : {}
+  byRoot[root] = at
+  await $.store.set(LAST_CLEAR, byRoot)
+}
 // No automatic handoff this soon after a clear: a baseline past the dumb-zone
 // mark (a huge doc, a tiny autoCompactWindow) would loop doc, clear, doc.
 const COOLDOWN_MS = 10 * 60_000
@@ -105,8 +127,7 @@ async function refresh($: EngineInterface, isTurnEnd: boolean, tokensHint?: numb
   if (level === undefined) return
   $.ui.toast(warning(level, { tokens, window, percent }, m), { timeoutMs: 12000 })
   if (level < 2) return
-  const lastClear = Number((await $.store.get(LAST_CLEAR)) ?? 0)
-  if ((await $.clock.now()) - lastClear < COOLDOWN_MS) {
+  if ((await $.clock.now()) - (await lastClearAt($)) < COOLDOWN_MS) {
     $.ui.toast(`Already past ${compact(m.dumb)} right after a handoff: the baseline is too large. Shrink the doc, memory files or MCP tools before the next one.`)
     return
   }
@@ -209,11 +230,12 @@ async function advanceHandoff($: EngineInterface, isAborted: boolean) {
 // the first prompt of the new one picks the read-back up (see prompt.submit).
 async function resetContext($: EngineInterface, path: string) {
   const at = await $.clock.now()
-  await $.store.set(PENDING, { path, at } satisfies Pending)
+  const root = await $.session.root()
+  await $.store.set(PENDING, { path, at, root } satisfies Pending)
   let how: 'cleared' | 'compacted' = 'cleared'
   try {
     await $.command.run({ command: 'clear', args: '' })
-    await $.store.set(LAST_CLEAR, at)
+    await markClear($, at)
   } catch {
     how = 'compacted'
     if (!(await runCommand($, 'compact', compactInstructions(path)))) {
@@ -236,10 +258,12 @@ async function resetContext($: EngineInterface, path: string) {
   }
 }
 
-// A read-back left over by a session that ended before it ran, if recent.
+// A read-back left over by a session that ended before it ran, if recent and
+// this repo's own: another project's job is left for its own session.
 async function pendingReadBack($: EngineInterface): Promise<Pending | undefined> {
   const p = (await $.store.get(PENDING)) as Pending | undefined
   if (!p?.path) return undefined
+  if (!sameRoot(p.root, await $.session.root())) return undefined
   if ((await $.clock.now()) - p.at > 30 * 60_000) {
     await $.store.delete(PENDING)
     return undefined
