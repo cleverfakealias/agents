@@ -109,8 +109,18 @@ const SECRET_KEY = `[A-Za-z0-9_]{0,64}(?:${KEYWORDS})[A-Za-z0-9_]{0,64}`
 // code like `passwordLabel: "Enter your password"` stays readable.
 const ENV_KEY = `(?!PUBLIC_)[A-Z0-9_]{0,64}(?:${KEYWORDS})[A-Z0-9_]{0,64}`
 
+// Source code after an unquoted `name:` or `name =`: a type annotation
+// (`secret: string)`), a generic (`Promise<string>`), a constant
+// (`MAX_RESPONSE_TOKENS`), a camelCase name, or a template or regex literal.
+// Letters only for names: a digit makes it look like a token again.
+const TYPE_WORD = 'string|number|boolean|bigint|symbol|object|unknown|any|never|void|undefined|null|readonly|keyof|typeof'
+const SOURCE = new RegExp(
+  `^(?:(?:${TYPE_WORD})(?=$|[)\\][|>&=])|[A-Za-z_$][\\w$]*<|[A-Z]+(?:_[A-Z]+)+[)\\]}]*$|[a-z]+(?:[A-Z][a-z]+)+[)\\]}]*$|\`|/[\\\\^([])`,
+)
+
 // keep: how many leading groups to keep. code: also pass values that are code.
-type Rule = { re: RegExp; keep?: number; code?: boolean }
+// source: also pass unquoted values that are source code (see SOURCE).
+type Rule = { re: RegExp; keep?: number; code?: boolean; source?: boolean }
 
 const RULES: Rule[] = [
   // The body stops at the next ----- line, so a BEGIN with no END scans one block, not the rest.
@@ -122,7 +132,7 @@ const RULES: Rule[] = [
   // KEY=rest of the line, unquoted, as dotenv reads it (spaces, ; and # included)
   { re: new RegExp(`(^[ \\t]*(?:export[ \\t]+)?${ENV_KEY}[ \\t]*=[ \\t]*)([^\\s"'][^\\r\\n]{7,})`, 'gm'), keep: 1, code: true },
   // KEY=value and KEY: value anywhere (YAML, wrangler output, source code), up to a space
-  { re: new RegExp(`(\\b(?!PUBLIC_)${SECRET_KEY}\\s*[=:]\\s*["']?)([^\\s"',;]{8,})`, 'gi'), keep: 1, code: true },
+  { re: new RegExp(`(\\b(?!PUBLIC_)${SECRET_KEY}\\s*[=:]\\s*["']?)([^\\s"',;]{8,})`, 'gi'), keep: 1, code: true, source: true },
   // "accessToken": "..." in JSON
   { re: new RegExp(`("(?!public)${SECRET_KEY}"\\s*:\\s*")([^"]{8,})`, 'gi'), keep: 1 },
   // <writeToken>...</writeToken> in XML
@@ -140,7 +150,7 @@ const RULES: Rule[] = [
 export function redact(text: string): { text: string; count: number } {
   let count = 0
   let out = text
-  for (const { re, keep, code } of RULES) {
+  for (const { re, keep, code, source } of RULES) {
     out = out.replace(re, (...m: string[]) => {
       const whole = m[0]
       if (keep === undefined) {
@@ -148,9 +158,12 @@ export function redact(text: string): { text: string; count: number } {
         return MARK
       }
       const value = m[keep + 1] ?? ''
+      const prefix = m.slice(1, keep + 1).join('')
       if (PLACEHOLDER.test(value) || (code && CODE.test(value))) return whole
+      // In quotes it is data, whatever it looks like.
+      if (source && !/["']$/.test(prefix) && SOURCE.test(value)) return whole
       count++
-      return m.slice(1, keep + 1).join('') + MARK
+      return prefix + MARK
     })
   }
   return { text: out, count }

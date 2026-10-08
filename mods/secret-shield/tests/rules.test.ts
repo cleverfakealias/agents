@@ -132,6 +132,28 @@ describe('redaction', () => {
     ])
       expect(redact(line).text).toBe(line)
   })
+  test('TypeScript that names a secret stays readable', () => {
+    for (const line of [
+      'export async function hashIp(ip: string, day: string, secret: string): Promise<string> {',
+      'async function isReplay(kv: KVNamespace, token: string): Promise<boolean> {',
+      'function sign(secret: Uint8Array<ArrayBuffer>, apiKey: readonly string[]) {',
+      '        max_tokens: MAX_RESPONSE_TOKENS,',
+      'verify(token: turnstileToken)',
+      'const SECRET_KEY = `[A-Za-z0-9_]{0,64}(?:${KEYWORDS})`',
+      'const MENTIONS_SECRET = /\\.env\\b|tokens?\\.json/i',
+    ])
+      expect(redact(line).text).toBe(line)
+  })
+  test('values shaped like code are still hidden when quoted or carrying digits', () => {
+    const shouty = ['MY', 'SUPER', 'SECRET', 'PASSPHRASE'].join('_')
+    expect(redact(`password: "${shouty}"`).text).not.toContain(shouty)
+    expect(redact(`password: '${shouty}'`).text).not.toContain(shouty)
+    expect(redact(`APP_PASSWORD=${shouty}`).text).not.toContain(shouty)
+    const typeLike = 'string' + filler('9Xk2', 24)
+    expect(redact(`token: ${typeLike}`).text).not.toContain(typeLike)
+    const constLike = 'MAX_' + filler('A7B', 21)
+    expect(redact(`max_tokens: ${constLike}`).text).not.toContain(constLike)
+  })
   test('values next to code-like ones are still hidden', () => {
     const dotted = `${filler('MTk4NjI', 24)}.${filler('Cl2FMQ', 6)}.${filler('ZnCjm1X', 27)}`
     expect(redact(`DISCORD_TOKEN=${dotted}`).text).not.toContain(dotted)
