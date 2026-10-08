@@ -1,5 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "CLAUDE_CODE_GLOB_NO_IGNORE": "false"
+  },
   "permissions": {
     "disableBypassPermissionsMode": "disable",
     "deny": [
@@ -25,7 +28,15 @@
       "Read(~/.docker/config.json)",
       "Read(~/.netrc)",
       "Read(~/.npmrc)",
-      "Read(~/.pypirc)"
+      "Read(~/.pypirc)",
+      "Read(~/.git-credentials)",
+      "Read(~/.gem/credentials)",
+      "Read(~/.azure/**)",
+      "Read(package-lock.json)",
+      "Read(pnpm-lock.yaml)",
+      "Read(*.lock)",
+      "Read(*.lockb)",
+      "Read(go.sum)"
     ],
     "ask": [
       "Bash(git push *)",
