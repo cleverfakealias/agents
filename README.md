@@ -76,7 +76,8 @@ paths denied in `settings.json` apply inside the sandbox too.
 
 | Layer | What it covers |
 | :- | :- |
-| `deny` rules | Secrets are never read or written: `.env*`, key files, `~/.ssh`, cloud and registry credentials. `.env.example` stays usable. |
+| `deny` rules | Secrets are never read or written: `.env*`, `.dev.vars*`, key files, `~/.ssh`, `~/.gnupg`, cloud credentials (AWS, GCP, Azure, Kubernetes), tool and registry credentials (GitHub CLI, Docker, npm, PyPI, RubyGems, `~/.git-credentials`, `~/.netrc`). `.env.example` stays usable. Lockfiles (`package-lock.json`, `pnpm-lock.yaml`, `*.lock`, `*.lockb`, `go.sum`) are not read either: they are large, and they only change through the package manager. |
+| File search | `settings.json` sets `CLAUDE_CODE_GLOB_NO_IGNORE=false`, so Claude's file search respects `.gitignore`. By default it also lists ignored files such as `node_modules` and build output. |
 | `ask` rules | A person approves `git push`, `git reset --hard`, `git clean`, `gh pr merge`, CI workflow edits, and any command retried outside the sandbox. These prompt in every permission mode, including auto. |
 | Built into Claude Code | Writes to `.claude/`, `.git/`, `.mcp.json`, and shell startup files are never auto-approved. `rm -rf` on the project, home, or root is always stopped. `settings.json` also disables bypass-permissions mode. |
 | Checks hook | Your formatter and tests run without anyone remembering to. |
@@ -102,6 +103,27 @@ deny and ask rules hold in all of them.
   there if you need real isolation.
 - **`*.pem` and `*.key` are denied wholesale.** Delete those two lines from
   `settings.json` if your repo keeps non-secret files with those extensions.
+- **Lockfiles can't be read.** To check a resolved version, ask the package
+  manager (`npm ls <pkg>`, `pnpm why <pkg>`), or delete the lockfile lines from
+  `settings.json`.
+
+## User-level mods
+
+`mods/` holds Claude Code mods that load into every session on the machine,
+whatever repo it runs in, the Desktop Code tab included. Each one fixes friction
+that kept repeating across real sessions:
+
+| Mod | In short |
+| :- | :- |
+| `shell-sense` | Denies shell commands that are certain to fail on Windows, and says what works instead. |
+| `package-gate` | Asks you before any package install, with a registry link per package. |
+| `secret-shield` | Keeps secret files and token values out of shell reads and the transcript. |
+| `repo-lock` | Denies dependency changes with the wrong package manager or from the wrong folder. |
+| `context-meter` | A band above the prompt: context fill against quality marks (30% fading, 40% "dumb zone"), rate limits, and model and effort switchers. |
+| `session-context` | Tells Claude the repo, branch and uncommitted work with each prompt. |
+
+Setup, the full behaviour of each, and how to work on them:
+[mods/README.md](mods/README.md).
 
 ## Working on this repo
 
@@ -109,8 +131,10 @@ deny and ask rules hold in all of them.
 node --test "tests/*.test.mjs"
 ```
 
-The tests exercise `checks.mjs` and enforce the scaffold's own rules (file size
-limits, valid hook paths, rule syntax). Using another agent? See
+The tests exercise `checks.mjs`, enforce the scaffold's own rules (file size
+limits, valid hook paths, rule syntax), and check that the mods' shared files
+match. Each mod also has its own tests: `claude plugin test mods/<name>`.
+Using another agent? See
 [providers.md](providers.md).
 
 Earlier versions (per-language standards skills, command-guard hooks, the
