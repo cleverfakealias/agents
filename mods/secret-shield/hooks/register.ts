@@ -125,7 +125,8 @@ export const register: Register = on => {
       return { ...block, content: inner.map(c => (c.type === 'text' ? { ...c, text: scrub(c.text) } : c)) }
     })
     if (!total) return next(e)
-    $.ui.toast(`secret-shield: hid ${total} secret value${total === 1 ? '' : 's'} in a tool result`)
+    // The engine already heads a toast with the plugin's name.
+    $.ui.toast(`Hid ${total} secret value${total === 1 ? '' : 's'} in a tool result`)
     return next({ ...e, message: { ...e.message, content } })
   }).catch(($, e, next) => {
     // Skipped, this hook would store the output unscanned: hide all of it instead.

@@ -24,7 +24,8 @@ async function gate($: EngineInterface, what: string, pkgs: Pkg[]): Promise<stri
   }
   if (answer === INSTALL) {
     fresh.forEach(p => approved.add(key(p)))
-    $.ui.toast(`package-gate: approved ${fresh.map(p => p.name).join(', ')}`)
+    // The engine already heads a toast with the plugin's name.
+    $.ui.toast(`Approved ${fresh.map(p => `${p.name} (${p.manager})`).join(', ')}`)
     return undefined
   }
   const names = fresh.map(p => `${p.name} (${p.link})`).join(', ')

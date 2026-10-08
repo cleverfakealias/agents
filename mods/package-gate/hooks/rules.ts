@@ -58,10 +58,13 @@ function args(words: string[]): string[] {
       if (VALUE_FLAGS.has(w)) i++
       continue
     }
-    if (/^(\d*|&)[<>]/.test(w)) {
-      if (/^(\d*|&)[<>]{1,2}$/.test(w)) i++ // `> log.txt`: its target too
-      continue // 2>&1, >log.txt
+    // `*>` is PowerShell's all-streams redirect.
+    if (/^(\d*|&|\*)[<>]/.test(w)) {
+      if (/^(\d*|&|\*)[<>]{1,2}$/.test(w)) i++ // `> log.txt`: its target too
+      continue // 2>&1, >log.txt, *>$null
     }
+    // A shell variable ($null, $env:PKG) is never a package name we can link to.
+    if (w.startsWith('$')) continue
     out.push(w)
   }
   return out
