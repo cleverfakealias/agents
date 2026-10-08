@@ -1,6 +1,10 @@
+import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import { CHANGES_BRANCH, LOCKFILES, type Pm, ancestors, join, pmCalls, verdict, winPath } from './rules'
+
+// The line's text, for the band the Desktop Code tab draws in place of a status line.
+const line = atom({ plugin: 'repo-lock', key: 'line' } as const, null as string | null)
 
 // The nearest lockfile at or above `dir` names the package manager. A folder's
 // lockfiles are checked at once, nearest folder first.
@@ -22,12 +26,11 @@ async function showStatus($: EngineInterface, dir: string) {
   shownFor = dir
   const r = await $.process.run(['git', 'rev-parse', '--show-toplevel', '--abbrev-ref', 'HEAD'], { cwd: dir, timeoutMs: 10000 }).catch(() => undefined)
   const [top, branch] = (r?.stdout ?? '').trim().split(/\r?\n/)
-  if (!top) {
-    $.ui.status(`${winPath(dir).split('/').pop()} · not a repo`)
-    return
-  }
-  const pm = await repoPm($, dir)
-  $.ui.status([top.split('/').pop(), pm ?? 'no lockfile', branch].filter(Boolean).join(' · '))
+  const text = top
+    ? [top.split('/').pop(), (await repoPm($, dir)) ?? 'no lockfile', branch].filter(Boolean).join(' · ')
+    : `${winPath(dir).split('/').pop()} · not a repo`
+  $.ui.status(text)
+  await update($, line, () => text)
 }
 
 async function guard($: EngineInterface, command: string): Promise<string | undefined> {
@@ -71,5 +74,21 @@ export const register: Register = on => {
     const result = await next(e)
     await afterCommand($, e.command)
     return result
+  })
+
+  // The terminal has the status line. Every other surface gets one dim line
+  // above the prompt, under whatever the engine and the plugins beneath draw.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const below = await next(e)
+    if (e.surface === 'terminal') return below
+    const text = await read($, line)
+    if (text === null) return below
+    const { Box, Text } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="column">
+        {below}
+        <Text dimColor>{text}</Text>
+      </Box>
+    )
   })
 }

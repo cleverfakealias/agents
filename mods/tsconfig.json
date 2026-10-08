@@ -14,5 +14,5 @@
     "jsxFragmentFactory": "Fragment"
   },
   "files": [".types/claude-code.d.ts"],
-  "include": ["*/hooks", "*/tests"]
+  "include": ["*/hooks", "*/tests", "*/types"]
 }

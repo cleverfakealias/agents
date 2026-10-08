@@ -109,6 +109,8 @@ const answer = (on: On, percent: number, compactAt?: number) => {
     seen.toasts.push(e.text)
     return { value: undefined }
   })
+  on('command.register', (_$, e) => ({ value: { command: e.name } }))
+  on('clock.after', () => ({ value: undefined }))
   on('session.root', () => ({ value: 'Z:\\repo' }))
   on('session.id', () => ({ value: 'abcdef1234567890' }))
   on('fs.write', (_$, e) => {
@@ -409,14 +411,43 @@ test('a refused command shows a toast instead of failing silently', async ($, on
   await ui.unmount()
 })
 
-test('before the dumb zone, or while a turn runs, there is no Handoff button', async ($, on) => {
+test('before the dumb zone the Handoff button is quiet; while a turn runs there is none', async ($, on) => {
   answer(on, 45)
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
-  for (const isWorking of [false, true]) {
-    const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: props(isWorking) })
-    expect(await ui.find({ key: 'handoff' })).toBeUndefined()
-    await ui.unmount()
-  }
+  const idle = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
+  expect((await idle.find({ key: 'handoff' }))?.props.plain).toBe(true)
+  await idle.unmount()
+  const busy = await $.ui.mount({ ...BAND, surface: 'desktop', props: props(true) })
+  expect(await busy.find({ key: 'handoff' })).toBeUndefined()
+  await busy.unmount()
+})
+
+test('/handoff runs the same steps as the button, at any fill', async ($, on) => {
+  const seen = answer(on, 20)
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  const first = await $.command.run({ command: 'handoff', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
+  expect(first.text).toContain('Claude writes the state doc')
+  await settle()
+  expect(seen.toasts).toEqual([])
+  expect(seen.prompts[0]).toContain('write a handoff doc')
+  const again = await $.command.run({ command: 'handoff', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
+  expect(again.text).toContain('already running')
+  expect(seen.prompts.length).toBe(1)
+})
+
+test('a session that loaded a smaller window says so, and Details shows the fixed baseline', async ($, on) => {
+  // 80k tokens: 40% of the model's 200k, with a leftover 100k autoCompactWindow.
+  answer(on, 40, 100_000)
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  const desk = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
+  expect(String((await desk.find({ type: 'Svg' }))?.props.source)).toContain('loaded a 100k window: the handoff starts a 200k one')
+  await desk.press({ key: 'toggle' })
+  // System tools 20k; Messages are not baseline.
+  expect(await desk.find({ type: 'Text', text: /baseline 20k on every turn/ })).toBeDefined()
+  await desk.unmount()
+  const term = await $.ui.mount({ ...BAND, surface: 'terminal', props: props() })
+  expect(await term.find({ type: 'Text', text: /loaded a 100k window/ })).toBeDefined()
+  await term.unmount()
 })
 
 test('the toggle opens the breakdown, limits, cost and memory files, and closes it again', async ($, on) => {

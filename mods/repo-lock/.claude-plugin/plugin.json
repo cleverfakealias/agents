@@ -1,5 +1,6 @@
 {
   "name": "repo-lock",
-  "version": "0.1.0",
-  "description": "Blocks dependency changes with the wrong package manager or outside a repo, and shows repo, package manager and branch in the status line."
+  "version": "0.2.0",
+  "description": "Blocks dependency changes with the wrong package manager or outside a repo, and shows repo, package manager and branch: in the status line, and above the prompt where the surface draws no status line (the Desktop Code tab).",
+  "types": "./types/index.d.ts"
 }

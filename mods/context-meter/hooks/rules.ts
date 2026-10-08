@@ -156,6 +156,8 @@ export type Card = {
   left?: string
   // A handoff in progress; it takes the place of growth and the countdown.
   status?: string
+  // This session loaded a smaller compaction window than the model has.
+  note?: string
   // The session's marks; the window's own when absent.
   marks?: Marks
   limits: { name: string; percent: number; reset?: string }[]
@@ -175,7 +177,7 @@ export function cardSvg(c: Card): string {
   const m = c.marks ?? marks(c.window)
   const color = COLORS[contextLevel(c.tokens, m)]
   const zone = zoneName(c.tokens, m)
-  const sub = c.status ?? [c.growth, c.left].filter(Boolean).join(' · ')
+  const sub = c.status ?? [c.growth, c.left, c.note].filter(Boolean).join(' · ')
   // Ticks across the ring at the fading and dumb-zone marks.
   const ticks = [m.fading, m.dumb].map(t => {
     const a = ((t / c.window) * 360 - 90) * (Math.PI / 180)
@@ -230,7 +232,25 @@ export function warning(stage: number, r: Reading, m: Marks): string {
   return `${fill} Past ${compact(m.fading)}, answer quality tends to slip. The handoff runs at ${compact(m.dumb)}.`
 }
 
+// A session that loaded a smaller compaction window than the model has (an old
+// `autoCompactWindow`, say) keeps it until it ends; the handoff's `/clear` starts
+// one with the model's own. Undefined when the two are close.
+export function windowNote(loaded: number | undefined, model: number): string | undefined {
+  if (loaded === undefined || loaded >= model * 0.9) return undefined
+  return `loaded a ${compact(loaded)} window: the handoff starts a ${compact(model)} one`
+}
+
+// The tokens every request carries before the conversation itself: the system
+// prompt, tool schemas, memory files, MCP tools. Paid on every turn.
+export const baseline = (categories: readonly { name: string; tokens: number; kind: string }[]) =>
+  categories.filter(c => c.kind === 'used' && !/^messages$/i.test(c.name)).reduce((n, c) => n + c.tokens, 0)
+
 // ── the handoff ───────────────────────────────────────────────────────────────
+
+export const HANDOFF_COMMAND = {
+  name: 'handoff',
+  description: 'Write a state doc, clear the context, read the doc back (context-meter).',
+} as const
 
 // Working notes in the repo, never committed (the folder ignores itself).
 export const HANDOFF_DIR = '.claude/handoff'

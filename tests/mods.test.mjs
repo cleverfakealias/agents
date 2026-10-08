@@ -33,6 +33,20 @@ test("the shell tokenizer is the same file in every mod that holds it", () => {
   }
 });
 
+test("no hooks module names a local `h` or `next`: the engine refuses a shadowed JSX factory or continuation", () => {
+  // The register module holds the hooks; a helper module (shell.ts) may use the names.
+  for (const name of names) {
+    const dir = join(mods, name, "hooks");
+    for (const file of readdirSync(dir).filter((f) => /^register\.tsx?$/.test(f))) {
+      const text = readFileSync(join(dir, file), "utf8");
+      for (const bad of [/\b(?:const|let|var)\s+(?:h|next)\b/, /\bfunction\s+(?:h|next)\s*\(/, /\(\s*(?:h|next)\s*\)\s*=>/]) {
+        const m = text.match(bad);
+        assert.equal(m, null, `${name}/hooks/${file}: "${m?.[0]}" shadows a name the engine reserves`);
+      }
+    }
+  }
+});
+
 for (const name of names) {
   test(`${name}: claude plugin validate and test pass`, { skip: !hasClaude && "claude CLI not on PATH" }, () => {
     for (const verb of ["validate", "test"]) {

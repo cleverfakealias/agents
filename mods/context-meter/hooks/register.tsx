@@ -4,10 +4,12 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { Category, Detail, Handoff, Meter, Setup } from '../types'
 import {
   EFFORTS,
+  HANDOFF_COMMAND,
   HANDOFF_DIR,
   aliasFor,
   aliasOf,
   averageGrowth,
+  baseline,
   cardSvg,
   compact,
   compactInstructions,
@@ -30,6 +32,7 @@ import {
   stageOf,
   turnsLeft,
   warning,
+  windowNote,
   zoneName,
 } from './rules'
 
@@ -222,6 +225,8 @@ async function resetContext($: EngineInterface, path: string) {
   await quietly(refreshDetail($))
   await quietly(refresh($, false))
   await quietly(refreshSetup($))
+  // The new session knows no slash commands of this plugin yet.
+  await quietly($.command.register(HANDOFF_COMMAND))
   try {
     await $.prompt.submit({ text: readPrompt(path, how) })
     await $.store.delete(PENDING)
@@ -245,11 +250,22 @@ async function pendingReadBack($: EngineInterface): Promise<Pending | undefined>
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const result = await next(e)
+    await quietly($.command.register(HANDOFF_COMMAND))
     // The breakdown first: it says which window the meter measures against.
     await quietly(refreshDetail($))
     await quietly(refresh($, false))
     await quietly(refreshSetup($))
     return result
+  })
+
+  // `/handoff`: the Handoff button as a typed command, at any fill. A prompt
+  // cannot be submitted from inside a command's own hook, so a timer does it next.
+  on('command.run', { command: HANDOFF_COMMAND.name }, async ($) => {
+    const job = await read($, handoff)
+    if (job !== null && job.phase !== 'queued') return { text: `A handoff is already running (${PHASE_TEXT[job.phase]}).` }
+    await update($, handoff, () => ({ phase: 'queued' as const }))
+    $.clock.after(0, () => quietly(beginHandoff($)))
+    return { text: 'Handoff: Claude writes the state doc, then the context is cleared and the doc read back.' }
   })
 
   // Each main-loop request carries the effort in use. Its model id may drop the
@@ -364,7 +380,10 @@ export const register: Register = on => {
     const leftText =
       left === undefined ? undefined : `≈${left} turns to ${isDumb ? (autoCompactAt ? 'a forced compact' : 'full') : 'the handoff'}`
     const status = job ? PHASE_TEXT[job.phase] : undefined
+    const note = windowNote(d?.window, m.window)
     const current = s?.alias ? parseAlias(s.alias) : undefined
+    // The engine's own band (and any plugin's beneath) stays; this one goes under it.
+    const below = await next(e)
     const effort = typeof s?.effort === 'string' ? s.effort : undefined
 
     const toggle = (
@@ -394,6 +413,7 @@ export const register: Register = on => {
             growth: delta !== undefined ? `${signed(delta)} last turn` : undefined,
             left: leftText,
             status,
+            note,
             marks: mk,
             limits: m.limits.map(l => ({ name: limitName(l.kind), percent: l.percent, reset: resetIn(l.resetsAt, now) })),
           })}
@@ -414,6 +434,7 @@ export const register: Register = on => {
             {status ? ` · ${status}` : ''}
             {!status && delta !== undefined ? ` · ${signed(delta)} last turn` : ''}
             {!status && leftText ? ` · ${leftText}` : ''}
+            {!status && note ? ` · ${note}` : ''}
             {m.limits.find(l => l.kind === 'five_hour') ? ` · 5h ${Math.round(m.limits.find(l => l.kind === 'five_hour')!.percent)}%` : ''}
           </Text>
         </Box>
@@ -462,10 +483,17 @@ export const register: Register = on => {
           ))}
           <Text dimColor> max</Text>
           <Text bold>{effort ? `  ${effort}` : ''}</Text>
-          {/* Doc, fresh context, read-back: the steps the meter runs on entering the dumb zone. */}
-          {isDumb && !e.props.isWorking && (job === null || job.phase === 'queued') ? (
+          {/* Doc, fresh context, read-back: the steps the meter runs on entering the
+              dumb zone. Offered at any fill, so a natural break can take it early;
+              quiet before the zone, a button inside it. */}
+          {!e.props.isWorking && (job === null || job.phase === 'queued') ? (
             <Box marginLeft={3}>
-              <Button key="handoff" label="Handoff" onPress={() => quietly(beginHandoff($))} />
+              <Button
+                key="handoff"
+                {...(isDumb ? {} : { plain: true as const, dimColor: true })}
+                label={isDumb ? 'Handoff' : '⇥ Handoff'}
+                onPress={() => quietly(beginHandoff($))}
+              />
             </Box>
           ) : null}
         </Box>
@@ -475,6 +503,7 @@ export const register: Register = on => {
     if (!open) {
       return (
         <Box flexDirection="column">
+          {below}
           {headline}
           {controls}
         </Box>
@@ -489,8 +518,10 @@ export const register: Register = on => {
     const used = (d?.categories ?? []).filter(c => c.kind === 'used').sort((a, z) => z.tokens - a.tokens)
     const rest = (d?.categories ?? []).filter(c => c.kind !== 'used')
 
+    const fixed = d ? baseline(d.categories) : 0
     return (
       <Box flexDirection="column">
+        {below}
         {headline}
         {controls}
         <Box flexDirection="column" paddingLeft={2} marginTop={1}>
@@ -543,6 +574,7 @@ export const register: Register = on => {
               {m.usd !== undefined ? `$${m.usd.toFixed(2)}` : 'cost n/a'}
               {d?.cacheHit !== undefined ? ` · cache hit ${d.cacheHit}% on the last request` : ''}
               {d && d.mcpTokens > 0 ? ` · MCP tools ${compact(d.mcpTokens)}` : ''}
+              {fixed > 0 ? ` · baseline ${compact(fixed)} on every turn (prompt, tools, memory)` : ''}
             </Text>
           </Box>
           {d && d.memoryFiles.length ? (
