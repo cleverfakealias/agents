@@ -25,16 +25,48 @@ export function gauge(part: number, whole: number, cells: number): { filled: str
 // A rate limit's color: it only matters close to the cap.
 export const level = (percent: number) => (percent >= 90 ? 'error' : percent >= 75 ? 'warning' : 'success')
 
-// Context quality, not capacity: answers tend to get worse well before the
-// window is full, from roughly 30-40% of it. These mark where the meter warns.
-export const FADING = 30
-export const DUMB_ZONE = 40
+// Context quality, not capacity. The 2025-2026 long-context results tie the drop
+// to token counts more than to a share of the window: on 1M models recall bends
+// near 128k-256k, code repair and multi-step work sooner. Each mark is the
+// smaller of a token count and a share of the window, so 200k windows warn early
+// too. Set a little above the measured knee: no results exist yet for the 5.x models.
+export const TIERS = {
+  fading: { tokens: 200_000, share: 0.35 },
+  dumb: { tokens: 350_000, share: 0.5 },
+  // Where the meter writes a handoff doc, compacts, and reads the doc back.
+  handoff: { tokens: 500_000, share: 0.75 },
+} as const
 
-export const contextLevel = (percent: number) =>
-  percent >= DUMB_ZONE ? 'error' : percent >= FADING ? 'warning' : 'success'
+export type Marks = { fading: number; dumb: number; handoff: number }
 
-export const zoneName = (percent: number) =>
-  percent >= DUMB_ZONE ? 'dumb zone' : percent >= FADING ? 'quality fading' : 'sharp'
+// With `autoCompactAt`, the handoff also comes before the engine's own compaction.
+export const marks = (window: number, autoCompactAt?: number): Marks => ({
+  fading: Math.min(TIERS.fading.tokens, Math.round(window * TIERS.fading.share)),
+  dumb: Math.min(TIERS.dumb.tokens, Math.round(window * TIERS.dumb.share)),
+  handoff: Math.min(
+    TIERS.handoff.tokens,
+    Math.round(window * TIERS.handoff.share),
+    autoCompactAt ? Math.round(autoCompactAt * 0.9) : Infinity,
+  ),
+})
+
+// 0 under the fading mark, 1 fading, 2 dumb zone, 3 handoff.
+export const stageOf = (tokens: number, m: Marks) =>
+  tokens >= m.handoff ? 3 : tokens >= m.dumb ? 2 : tokens >= m.fading ? 1 : 0
+
+export const contextLevel = (tokens: number, m: Marks) =>
+  tokens >= m.dumb ? 'error' : tokens >= m.fading ? 'warning' : 'success'
+
+export type Zone = 'sharp' | 'quality fading' | 'dumb zone'
+
+export const zoneName = (tokens: number, m: Marks): Zone =>
+  tokens >= m.dumb ? 'dumb zone' : tokens >= m.fading ? 'quality fading' : 'sharp'
+
+export function zoneHint(zone: Zone, m: Marks): string {
+  if (zone === 'sharp') return `under ${compact(m.fading)}: full recall`
+  if (zone === 'quality fading') return `${compact(m.fading)}–${compact(m.dumb)}: answers tend to slip`
+  return `past ${compact(m.dumb)}: handoff and compact at ${compact(m.handoff)}`
+}
 
 // Growth of the last turn; a negative value is a compaction.
 export const lastDelta = (h: readonly number[]) => (h.length >= 2 ? h[h.length - 1]! - h[h.length - 2]! : undefined)
@@ -120,15 +152,13 @@ export type Card = {
   window: number
   growth?: string
   left?: string
-  // Set when the session compacts below the model's limit: `model max 1.0M`.
+  // Set when the session compacts below the model's limit: `autocompacts at 400k`.
   windowNote?: string
+  // A handoff in progress; it takes the place of growth and the countdown.
+  status?: string
+  // The session's marks; the window's own when absent.
+  marks?: Marks
   limits: { name: string; percent: number; reset?: string }[]
-}
-
-const ZONE_HINT: Record<ReturnType<typeof zoneName>, string> = {
-  sharp: `under ${FADING}%: full recall`,
-  'quality fading': `${FADING}–${DUMB_ZONE}%: answers tend to slip`,
-  'dumb zone': `past ${DUMB_ZONE}%: /compact or a fresh session`,
 }
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -142,12 +172,13 @@ export function cardSvg(c: Card): string {
   const r = 34
   const circ = 2 * Math.PI * r
   const fill = Math.min(c.percent, 100) / 100
-  const color = COLORS[contextLevel(c.percent)]
-  const zone = zoneName(c.percent)
-  const sub = [c.growth, c.left, c.windowNote].filter(Boolean).join(' · ')
-  // Ticks across the ring at the fading and dumb-zone marks.
-  const ticks = [FADING, DUMB_ZONE].map(p => {
-    const a = ((p / 100) * 360 - 90) * (Math.PI / 180)
+  const m = c.marks ?? marks(c.window)
+  const color = COLORS[contextLevel(c.tokens, m)]
+  const zone = zoneName(c.tokens, m)
+  const sub = c.status ?? [c.growth, c.left, c.windowNote].filter(Boolean).join(' · ')
+  // Ticks across the ring at the fading, dumb-zone and handoff marks.
+  const ticks = [m.fading, m.dumb, m.handoff].map(t => {
+    const a = ((t / c.window) * 360 - 90) * (Math.PI / 180)
     const [x1, y1, x2, y2] = [48 + (r - 7) * Math.cos(a), 48 + (r - 7) * Math.sin(a), 48 + (r + 7) * Math.cos(a), 48 + (r + 7) * Math.sin(a)]
     return `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke-width="2" class="tick"/>`
   })
@@ -179,27 +210,56 @@ export function cardSvg(c: Card): string {
     `<text x="104" y="57" font-size="13" class="m">${esc(sub || 'measuring growth after the next turn')}</text>` +
     `<circle cx="109" cy="75" r="4" fill="${color}"/>` +
     `<text x="119" y="80" font-size="13" class="t" font-weight="600">${zone.charAt(0).toUpperCase() + zone.slice(1)}` +
-    `<tspan class="m" font-weight="400"> · ${esc(ZONE_HINT[zone])}</tspan></text>` +
+    `<tspan class="m" font-weight="400"> · ${esc(zoneHint(zone, m))}</tspan></text>` +
     bars.join('') +
     `</svg>`
   )
 }
 
-// A toast when the context starts to fade, enters the dumb zone, and nears autocompact.
-export const LEVELS = [FADING, DUMB_ZONE, 90] as const
-
-// The highest warning level newly crossed, or undefined. A drop (after /compact)
-// re-arms the levels below the new reading.
-export function crossed(percent: number, warned: number): { level?: number; warned: number } {
-  const reached = LEVELS.filter(l => percent >= l).pop() ?? 0
-  if (reached > warned) return { level: reached, warned: reached }
-  return { warned: Math.min(warned, reached) }
+// The highest stage newly reached (1 fading, 2 dumb zone, 3 handoff), or
+// undefined. A drop (after a compaction) re-arms the stages above the new reading.
+export function crossed(stage: number, warned: number): { level?: number; warned: number } {
+  if (stage > warned) return { level: stage, warned: stage }
+  return { warned: Math.min(warned, stage) }
 }
 
-export function warning(level: number, r: Reading): string {
-  const fill = `Context is ${r.percent}% full (${compact(r.tokens)} of ${compact(r.window)}).`
-  if (level >= 90) return `${fill} Autocompact runs soon. /compact at a natural break keeps control of what stays.`
-  if (level >= DUMB_ZONE)
-    return `${fill} This is the dumb zone: recall and reasoning drop in long contexts. /compact or start a fresh session for new work.`
-  return `${fill} Answer quality tends to slip from here. Plan a /compact or a fresh session at the next natural break.`
+export function warning(stage: number, r: Reading, m: Marks): string {
+  const fill = `Context holds ${compact(r.tokens)} (${r.percent}% of ${compact(r.window)}).`
+  if (stage >= 3) return `${fill} At the end of this turn Claude writes a handoff doc, compacts, and reads the doc back.`
+  if (stage >= 2)
+    return `${fill} Past ${compact(m.dumb)} is the dumb zone: recall and reasoning drop, and each turn costs more. Hand off at a natural break, or start a fresh session.`
+  return `${fill} Past ${compact(m.fading)}, answer quality tends to slip. Plan a handoff at the next natural break.`
 }
+
+// ── the handoff ───────────────────────────────────────────────────────────────
+
+// Working notes in the repo, never committed (the folder ignores itself).
+export const HANDOFF_DIR = '.claude/handoff'
+
+export function handoffPath(root: string, sessionId: string, now: number): string {
+  const base = root.replace(/\\/g, '/').replace(/\/+$/, '')
+  return `${base}/${HANDOFF_DIR}/${new Date(now).toISOString().slice(0, 10)}-${sessionId.slice(0, 8)}.md`
+}
+
+export const handoffPrompt = (path: string, r: Reading) =>
+  [
+    `Context holds ${compact(r.tokens)} tokens. Before this conversation is compacted, write a handoff doc to ${path} with the Write tool (replace the file if it exists).`,
+    'Write it for a fresh session that has none of this conversation. Use these sections:',
+    '1. Goal: what the user wants, in their words where it matters.',
+    '2. Current state: what is done, what is in progress, the branch and uncommitted changes.',
+    '3. Decisions: what was chosen and why, and what the user rejected.',
+    '4. Key files: each path with one line on its role.',
+    '5. Open problems: errors seen, approaches that failed, gotchas.',
+    '6. Next steps: numbered, the very next action first.',
+    'Keep it under 300 lines. Do not start new work. When it is written, reply with one line.',
+  ].join('\n')
+
+export const compactInstructions = (path: string) =>
+  `A handoff doc for this session is at ${path}. Name that path in the summary as the source of truth for state and next steps. Keep the user's latest request and any question still open to them.`
+
+export const readPrompt = (path: string) =>
+  [
+    `This conversation was just compacted. Read the handoff doc at ${path}.`,
+    'Check it against the repo: git status, and the files it names.',
+    'Then say in a few lines what is stale or wrong, and what the next step is. Wait for me before you start it.',
+  ].join('\n')

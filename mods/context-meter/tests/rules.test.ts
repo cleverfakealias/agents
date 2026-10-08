@@ -6,16 +6,22 @@ import {
   averageGrowth,
   cardSvg,
   compact,
+  compactInstructions,
   contextLevel,
   crossed,
   families,
   gauge,
+  handoffPath,
+  handoffPrompt,
   lastDelta,
+  marks,
   modelName,
   parseAlias,
+  readPrompt,
   resetIn,
   signed,
   sparkline,
+  stageOf,
   turnsLeft,
   warning,
   zoneName,
@@ -49,15 +55,16 @@ describe('model and effort', () => {
 })
 
 test('the card is one SVG with the figures and escaped text', () => {
-  const svg = cardSvg({
+  const card = {
     percent: 52,
     tokens: 104_000,
     window: 200_000,
     growth: '+6k last turn',
-    left: '≈11 turns to autocompact',
+    left: '≈11 turns to the handoff',
     windowNote: 'model max <1M>',
     limits: [{ name: '5h', percent: 31, reset: 'in 2h 10m' }],
-  })
+  }
+  const svg = cardSvg(card)
   expect(svg.startsWith('<svg')).toBe(true)
   expect(svg).toContain('>52%<')
   expect(svg).toContain('104k')
@@ -65,11 +72,49 @@ test('the card is one SVG with the figures and escaped text', () => {
   expect(svg).toContain('model max &lt;1M&gt;')
   expect(svg).toContain('Dumb zone')
   expect(svg.length).toBeLessThan(131072)
+  // A handoff in progress takes the place of growth and the countdown.
+  const busy = cardSvg({ ...card, status: 'handoff 2/3: compacting' })
+  expect(busy).toContain('handoff 2/3: compacting')
+  expect(busy).not.toContain('+6k last turn')
 })
 
-test('the zone follows the quality marks, not capacity', () => {
-  expect([10, 30, 39, 40, 90].map(zoneName)).toEqual(['sharp', 'quality fading', 'quality fading', 'dumb zone', 'dumb zone'])
-  expect([10, 35, 45].map(contextLevel)).toEqual(['success', 'warning', 'error'])
+describe('marks', () => {
+  test('a 1M window warns at 200k, 350k and hands off at 500k', () => {
+    expect(marks(1_000_000)).toEqual({ fading: 200_000, dumb: 350_000, handoff: 500_000 })
+    expect(marks(1_000_000, 967_000).handoff).toBe(500_000)
+  })
+  test('a 200k window warns at a share of it instead', () => {
+    expect(marks(200_000, 167_000)).toEqual({ fading: 70_000, dumb: 100_000, handoff: 150_000 })
+  })
+  test('the handoff comes before an early autocompact', () => {
+    expect(marks(1_000_000, 400_000).handoff).toBe(360_000)
+  })
+  test('the zone follows tokens, not capacity', () => {
+    const m = marks(1_000_000)
+    expect([100_000, 200_000, 349_000, 350_000, 900_000].map(t => zoneName(t, m))).toEqual([
+      'sharp',
+      'quality fading',
+      'quality fading',
+      'dumb zone',
+      'dumb zone',
+    ])
+    expect([100_000, 250_000, 400_000].map(t => contextLevel(t, m))).toEqual(['success', 'warning', 'error'])
+    expect([100_000, 250_000, 400_000, 600_000].map(t => stageOf(t, m))).toEqual([0, 1, 2, 3])
+  })
+})
+
+describe('handoff', () => {
+  const now = Date.parse('2026-10-06T10:00:00Z')
+  test('the doc lives in the repo, under a folder git ignores', () => {
+    expect(handoffPath('Z:\\repo\\', 'abcdef1234567890', now)).toBe('Z:/repo/.claude/handoff/2026-10-06-abcdef12.md')
+  })
+  test('each prompt names the doc', () => {
+    const path = 'Z:/repo/.claude/handoff/x.md'
+    expect(handoffPrompt(path, { tokens: 500_000, window: 1_000_000, percent: 50 })).toContain(`write a handoff doc to ${path}`)
+    expect(handoffPrompt(path, { tokens: 500_000, window: 1_000_000, percent: 50 })).toContain('Next steps')
+    expect(compactInstructions(path)).toContain(path)
+    expect(readPrompt(path)).toContain(`Read the handoff doc at ${path}`)
+  })
 })
 
 describe('estimates', () => {
@@ -95,29 +140,30 @@ describe('estimates', () => {
 })
 
 describe('warnings', () => {
-  test('each level warns once: fading, dumb zone, near autocompact', () => {
-    let s = crossed(20, 0)
+  test('each stage warns once: fading, dumb zone, handoff', () => {
+    let s = crossed(0, 0)
     expect(s.level).toBeUndefined()
-    s = crossed(31, s.warned)
-    expect(s.level).toBe(30)
-    s = crossed(35, s.warned)
+    s = crossed(1, s.warned)
+    expect(s.level).toBe(1)
+    s = crossed(1, s.warned)
     expect(s.level).toBeUndefined()
-    s = crossed(42, s.warned)
-    expect(s.level).toBe(40)
-    s = crossed(91, s.warned)
-    expect(s.level).toBe(90)
+    s = crossed(2, s.warned)
+    expect(s.level).toBe(2)
+    s = crossed(3, s.warned)
+    expect(s.level).toBe(3)
   })
-  test('a drop after /compact re-arms the levels', () => {
-    let s = crossed(45, 0)
-    s = crossed(12, s.warned)
+  test('a drop after a compaction re-arms the stages', () => {
+    let s = crossed(2, 0)
+    s = crossed(0, s.warned)
     expect(s.warned).toBe(0)
-    expect(crossed(33, s.warned).level).toBe(30)
+    expect(crossed(1, s.warned).level).toBe(1)
   })
   test('each text names the step to take', () => {
-    const r = (percent: number) => ({ tokens: percent * 10_000, window: 1_000_000, percent })
-    expect(warning(30, r(30))).toContain('slip')
-    expect(warning(40, r(40))).toContain('dumb zone')
-    expect(warning(90, r(90))).toContain('/compact')
+    const m = marks(1_000_000)
+    const r = (tokens: number) => ({ tokens, window: 1_000_000, percent: tokens / 10_000 })
+    expect(warning(1, r(210_000), m)).toContain('Past 200k, answer quality tends to slip')
+    expect(warning(2, r(360_000), m)).toContain('dumb zone')
+    expect(warning(3, r(510_000), m)).toContain('writes a handoff doc')
   })
 })
 
