@@ -5,6 +5,7 @@ import {
   aliasOf,
   averageGrowth,
   cardSvg,
+  fit,
   compact,
   compactInstructions,
   contextLevel,
@@ -75,6 +76,18 @@ test('the card is one SVG with the figures and escaped text', () => {
   const busy = cardSvg({ ...card, status: 'handoff 2/3: clearing the context' })
   expect(busy).toContain('handoff 2/3: clearing the context')
   expect(busy).not.toContain('+6k last turn')
+  // The text column is clipped, and a line too long for it is cut, so the
+  // limit column never gets written over.
+  expect(svg).toContain('clip-path="url(#col)"')
+  const long = cardSvg({ ...card, left: 'a countdown that goes on and on and on and on and on and on and on and on and on' })
+  expect(long).toContain('…')
+  expect(long).not.toContain('on and on and on and on and on and on and on and on')
+})
+
+test('fit cuts a line to its column by glyph width', () => {
+  expect(fit('short', 200, 13)).toBe('short')
+  expect(fit('5h limit 50% · resets in 3h 31m', 204, 12)).toBe('5h limit 50% · resets in 3h 31m')
+  expect(fit('abcdefghijklmnopqrstuvwxyz', 65, 13)).toBe('abcdefghi…')
 })
 
 describe('marks', () => {

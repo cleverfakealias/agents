@@ -1,6 +1,6 @@
 {
   "name": "context-meter",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "A context band above the prompt that warns on quality in tokens (200k fading, 350k dumb zone) and hands off there: a state doc, /clear, the doc read back. Model and effort switchers, the /context breakdown, limits, cost and memory files. Terminal and Desktop Code tab.",
   "types": "./types/index.d.ts"
 }

@@ -440,7 +440,9 @@ test('a session that loaded a smaller window says so, and Details shows the fixe
   answer(on, 40, 100_000)
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
   const desk = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
-  expect(String((await desk.find({ type: 'Svg' }))?.props.source)).toContain('loaded a 100k window: the handoff starts a 200k one')
+  // The note is a text row under the card, never inside it: the card's columns stay clean.
+  expect(String((await desk.find({ type: 'Svg' }))?.props.source)).not.toContain('100k window')
+  expect(await desk.find({ type: 'Text', text: /loaded a 100k window from an old setting.*a new chat gets the full 200k/ })).toBeDefined()
   await desk.press({ key: 'toggle' })
   // System tools 20k; Messages are not baseline.
   expect(await desk.find({ type: 'Text', text: /baseline 20k on every turn/ })).toBeDefined()

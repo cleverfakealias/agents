@@ -156,8 +156,6 @@ export type Card = {
   left?: string
   // A handoff in progress; it takes the place of growth and the countdown.
   status?: string
-  // This session loaded a smaller compaction window than the model has.
-  note?: string
   // The session's marks; the window's own when absent.
   marks?: Marks
   limits: { name: string; percent: number; reset?: string }[]
@@ -165,54 +163,93 @@ export type Card = {
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
+// The card's grid, in viewBox units. The surface scales the whole drawing to
+// the slot, so only the proportions matter: three columns that never touch.
+const CARD = {
+  w: 760,
+  h: 96,
+  ring: { cx: 48, cy: 48, r: 34 },
+  // The text column: the figures, the zone, then growth. Clipped at its edge.
+  text: { x: 104, right: 516 },
+  // The rate-limit column: one label and bar per limit.
+  limits: { x: 540, w: 204, first: 24, step: 36 },
+} as const
+
+// Cuts a line to fit its column, by an average glyph width for the font size
+// (a UI sans at mixed case and digits runs near half the size per glyph).
+export function fit(text: string, widthPx: number, fontSize: number): string {
+  const max = Math.floor(widthPx / (fontSize * 0.5))
+  return text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1)).trimEnd()}…`
+}
+
 // One SVG: a ring gauge with the fill and ticks at the quality marks, the token
-// figures large, the quality zone, and a bar per rate limit. Each text column
-// stays left of the next, so nothing overlaps. Colors follow light or dark.
+// figures large, the quality zone, the growth, and a bar per rate limit. Each
+// line is cut to its column and the column is clipped, so nothing overlaps.
+// Colors follow light or dark.
 export function cardSvg(c: Card): string {
-  const W = 760
-  const H = 96
-  const r = 34
-  const circ = 2 * Math.PI * r
+  const { w: W, h: H, ring, text, limits } = CARD
+  const circ = 2 * Math.PI * ring.r
   const fill = Math.min(c.percent, 100) / 100
   const m = c.marks ?? marks(c.window)
   const color = COLORS[contextLevel(c.tokens, m)]
   const zone = zoneName(c.tokens, m)
-  const sub = c.status ?? [c.growth, c.left, c.note].filter(Boolean).join(' · ')
+  const zoneLabel = zone.charAt(0).toUpperCase() + zone.slice(1)
+  const sub = c.status ?? [c.growth, c.left].filter(Boolean).join(' · ')
+  const col = text.right - text.x
   // Ticks across the ring at the fading and dumb-zone marks.
   const ticks = [m.fading, m.dumb].map(t => {
     const a = ((t / c.window) * 360 - 90) * (Math.PI / 180)
-    const [x1, y1, x2, y2] = [48 + (r - 7) * Math.cos(a), 48 + (r - 7) * Math.sin(a), 48 + (r + 7) * Math.cos(a), 48 + (r + 7) * Math.sin(a)]
+    const [x1, y1, x2, y2] = [
+      ring.cx + (ring.r - 7) * Math.cos(a),
+      ring.cy + (ring.r - 7) * Math.sin(a),
+      ring.cx + (ring.r + 7) * Math.cos(a),
+      ring.cy + (ring.r + 7) * Math.sin(a),
+    ]
     return `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke-width="2" class="tick"/>`
   })
-  const BX = 540
   const bars = c.limits.slice(0, 2).map((l, i) => {
-    const y = 26 + i * 34
-    const w = 200
+    const y = limits.first + i * limits.step
     const lc = COLORS[level(l.percent)]
+    const reset = l.reset ? ` · resets ${l.reset}` : ''
+    const label = fit(`${l.name} limit ${Math.round(l.percent)}%${reset}`, limits.w, 12)
+    const pct = `${Math.round(l.percent)}%`
+    // The percent in full strength, the rest dim; split only when the cut kept it.
+    const at = label.indexOf(pct)
+    const labelMarkup =
+      at >= 0
+        ? `${esc(label.slice(0, at))}<tspan class="t" font-weight="600">${esc(pct)}</tspan>${esc(label.slice(at + pct.length))}`
+        : esc(label)
     return (
-      `<text x="${BX}" y="${y}" class="m" font-size="12">${esc(l.name)} limit` +
-      `<tspan class="t" font-weight="600"> ${Math.round(l.percent)}%</tspan>` +
-      `${l.reset ? `<tspan class="m"> · resets ${esc(l.reset)}</tspan>` : ''}</text>` +
-      `<rect x="${BX}" y="${y + 7}" width="${w}" height="6" rx="3" class="track"/>` +
-      `<rect x="${BX}" y="${y + 7}" width="${Math.max(3, (w * Math.min(l.percent, 100)) / 100)}" height="6" rx="3" fill="${lc}"/>`
+      `<text x="${limits.x}" y="${y}" class="m" font-size="12">${labelMarkup}</text>` +
+      `<rect x="${limits.x}" y="${y + 8}" width="${limits.w}" height="6" rx="3" class="track"/>` +
+      `<rect x="${limits.x}" y="${y + 8}" width="${Math.max(3, (limits.w * Math.min(l.percent, 100)) / 100).toFixed(1)}" height="6" rx="3" fill="${lc}"/>`
     )
   })
+  const figure = `${compact(c.tokens)}`
+  const suffix = ` / ${compact(c.window)} context`
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
-    `<style>.t{fill:#1f2328}.m{fill:#59636e}.track{fill:#d1d9e0}.ring{stroke:#d1d9e0}.tick{stroke:#59636e}` +
-    `@media (prefers-color-scheme: dark){.t{fill:#e6edf3}.m{fill:#9198a1}.track{fill:#3d444d}.ring{stroke:#3d444d}.tick{stroke:#9198a1}}` +
+    `<style>.t{fill:#1f2328}.m{fill:#59636e}.track{fill:#d1d9e0}.ring{stroke:#d1d9e0}.tick{stroke:#59636e}.rule{stroke:#d1d9e0}` +
+    `@media (prefers-color-scheme: dark){.t{fill:#e6edf3}.m{fill:#9198a1}.track{fill:#3d444d}.ring{stroke:#3d444d}.tick{stroke:#9198a1}.rule{stroke:#3d444d}}` +
     `text{font-family:ui-sans-serif,system-ui,'Segoe UI',sans-serif}</style>` +
-    `<circle cx="48" cy="48" r="${r}" fill="none" stroke-width="9" class="ring"/>` +
-    `<circle cx="48" cy="48" r="${r}" fill="none" stroke="${color}" stroke-width="9" stroke-linecap="round" ` +
-    `stroke-dasharray="${(circ * fill).toFixed(1)} ${circ.toFixed(1)}" transform="rotate(-90 48 48)"/>` +
+    `<defs><clipPath id="col"><rect x="${text.x}" y="0" width="${col}" height="${H}"/></clipPath></defs>` +
+    // The ring: track, fill, the marks, the percent.
+    `<circle cx="${ring.cx}" cy="${ring.cy}" r="${ring.r}" fill="none" stroke-width="9" class="ring"/>` +
+    `<circle cx="${ring.cx}" cy="${ring.cy}" r="${ring.r}" fill="none" stroke="${color}" stroke-width="9" stroke-linecap="round" ` +
+    `stroke-dasharray="${(circ * fill).toFixed(1)} ${circ.toFixed(1)}" transform="rotate(-90 ${ring.cx} ${ring.cy})"/>` +
     ticks.join('') +
-    `<text x="48" y="55" text-anchor="middle" font-size="20" font-weight="700" class="t">${c.percent}%</text>` +
-    `<text x="104" y="34" font-size="26" font-weight="700" class="t">${compact(c.tokens)}` +
-    `<tspan class="m" font-size="16" font-weight="400"> / ${compact(c.window)} context</tspan></text>` +
-    `<text x="104" y="57" font-size="13" class="m">${esc(sub || 'measuring growth after the next turn')}</text>` +
-    `<circle cx="109" cy="75" r="4" fill="${color}"/>` +
-    `<text x="119" y="80" font-size="13" class="t" font-weight="600">${zone.charAt(0).toUpperCase() + zone.slice(1)}` +
-    `<tspan class="m" font-weight="400"> · ${esc(zoneHint(zone, m))}</tspan></text>` +
+    `<text x="${ring.cx}" y="${ring.cy + 7}" text-anchor="middle" font-size="20" font-weight="700" class="t">${c.percent}%</text>` +
+    // The text column, three lines, clipped at its right edge.
+    `<g clip-path="url(#col)">` +
+    `<text x="${text.x}" y="34" font-size="26" font-weight="700" class="t">${esc(figure)}` +
+    `<tspan class="m" font-size="16" font-weight="400">${esc(fit(suffix, col - figure.length * 15, 16))}</tspan></text>` +
+    `<circle cx="${text.x + 5}" cy="54" r="4" fill="${color}"/>` +
+    `<text x="${text.x + 15}" y="59" font-size="13" class="t" font-weight="600">${esc(zoneLabel)}` +
+    `<tspan class="m" font-weight="400">${esc(fit(` · ${zoneHint(zone, m)}`, col - 15 - zoneLabel.length * 8, 13))}</tspan></text>` +
+    `<text x="${text.x}" y="82" font-size="13" class="m">${esc(fit(sub || 'measuring growth after the next turn', col, 13))}</text>` +
+    `</g>` +
+    // A hairline between the text and the limits.
+    (bars.length ? `<line x1="${limits.x - 16}" y1="18" x2="${limits.x - 16}" y2="${H - 18}" stroke-width="1" class="rule"/>` : '') +
     bars.join('') +
     `</svg>`
   )
@@ -233,11 +270,12 @@ export function warning(stage: number, r: Reading, m: Marks): string {
 }
 
 // A session that loaded a smaller compaction window than the model has (an old
-// `autoCompactWindow`, say) keeps it until it ends; the handoff's `/clear` starts
-// one with the model's own. Undefined when the two are close.
+// `autoCompactWindow`, say) keeps it for the life of its process: `/clear` and
+// the handoff keep the process, so only a new chat loads the model's own.
+// Undefined when the two are close.
 export function windowNote(loaded: number | undefined, model: number): string | undefined {
   if (loaded === undefined || loaded >= model * 0.9) return undefined
-  return `loaded a ${compact(loaded)} window: the handoff starts a ${compact(model)} one`
+  return `This chat loaded a ${compact(loaded)} window from an old setting. The handoff keeps it; a new chat gets the full ${compact(model)}.`
 }
 
 // The tokens every request carries before the conversation itself: the system
