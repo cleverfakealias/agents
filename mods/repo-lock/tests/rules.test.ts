@@ -69,7 +69,7 @@ test('the status line runs git only when the folder, branch or lockfile can have
   on('ui.status', () => ({ value: undefined }))
   on('process.run', (_, e) => {
     gitRuns.push(e.argv.join(' '))
-    return { value: { exitCode: 0, stdout: 'Z:/r\nmain\n', stderr: '' } }
+    return { value: { exitCode: 0, stdout: 'Z:/r\nmain\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '', stderr: '', interrupted: false } }))
 

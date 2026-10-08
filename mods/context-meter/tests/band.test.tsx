@@ -51,7 +51,7 @@ const props = (isWorking = false): RenderPropsOf['AbovePrompt'] => ({
 })
 
 const NOW = Date.parse('2026-10-06T10:00:00Z')
-const DOC = 'Z:/repo/.claude/handoff/2026-10-06-abcdef12.md'
+const DOC = 'Z:/repo/.claude/handoff/2026-10-06-1000-abcdef12.md'
 // A compaction leaves at least one message: the summary.
 const SUMMARY = [{ role: 'user' as const, text: 'Summary of the conversation so far.', toolUses: [] }]
 
@@ -76,14 +76,32 @@ const answer = (on: On, percent: number, compactAt?: number) => {
     isBusy: false,
     // Commands the session refuses.
     refused: [] as string[],
+    // The read-back prompt fails once: the chain dies with the old session.
+    failReadBack: false,
+    // The fill the session reports; a test moves it.
+    percent,
   }
-  on('session.usage', (_$, args) => ({ value: usage(percent, args, compactAt) }))
+  on('session.usage', (_$, args) => ({ value: usage(seen.percent, args, compactAt) }))
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.model', () => ({ value: 'claude-opus-5-5[1m]' }))
   on('config.list', () => ({ value: [MODEL_ROW] }))
-  on('command.run', (_$, e) => {
+  // The plugin's store, which outlives a session.
+  const store = new Map<string, unknown>()
+  on('store.get', (_$, e) => ({ value: store.get(e.key) }))
+  on('store.set', (_$, e) => {
+    store.set(e.key, e.value)
+    return { value: undefined }
+  })
+  on('store.delete', (_$, e) => {
+    store.delete(e.key)
+    return { value: undefined }
+  })
+  on('command.run', async ($, e) => {
     if (seen.isBusy || seen.refused.includes(e.command)) throw new Error('busy')
     seen.runs.push(`/${e.command} ${e.args}`)
+    // A real `/clear` starts a new session whose atoms read as never written.
+    // The test engine has no `state` noun, so that loss is not simulated here;
+    // the store fallback test below covers the chain dying with the old session.
     return { text: '' }
   })
   on('clock.now', () => ({ value: NOW }))
@@ -102,8 +120,12 @@ const answer = (on: On, percent: number, compactAt?: number) => {
     return { value: { kind: 'file', size: 900, mtimeMs: NOW, isLink: false } }
   })
   on('prompt.submit', (_$, e) => {
+    if (seen.failReadBack && e.text.includes('Read the handoff doc')) {
+      seen.failReadBack = false
+      throw new Error('session gone')
+    }
     seen.prompts.push(e.text)
-    return { text: e.text }
+    return { text: e.text, context: e.context }
   })
   on('turn.complete', (_$, e) => ({ text: e.answer }))
   on('session.compact', (_$, e) => {
@@ -114,9 +136,12 @@ const answer = (on: On, percent: number, compactAt?: number) => {
   return seen
 }
 
+// A prompt the person sends from the Desktop app.
+const typed = ($: Engine, text: string) => $.prompt.submit({ text, wait: false, origin: { kind: 'sdk' } })
+
 // A main-loop turn ending.
-const turnEnds = ($: Engine) =>
-  $.turn.complete({ turnId: 't', answer: 'ok', durationMs: 1, isAborted: false, reason: 'answer' })
+const turnEnds = ($: Engine, reason: 'answer' | 'aborted' | 'error' = 'answer') =>
+  $.turn.complete({ turnId: 't', answer: 'ok', durationMs: 1, isAborted: reason === 'aborted', reason })
 
 // Lets the steps the hooks leave running (not awaited) finish.
 // The kit's types leave out timers, but the test runtime has them.
@@ -158,18 +183,19 @@ test('the zones follow tokens: 70k on a 200k window is already fading', async ($
   await term.unmount()
 })
 
-test('fill counts the full model window; an early autocompact shows as a note', async ($, on) => {
+test('fill counts the full model window, and the card never promises an autocompact the band holds', async ($, on) => {
   // 80k tokens: 40% of the model's 200k, with a leftover 100k autoCompactWindow.
   answer(on, 40, 100_000)
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
   const desk = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
   const card = await desk.find({ type: 'Svg' })
   expect(card?.props.alt).toBe('Context 40% full, 80k of 200k tokens')
-  expect(String(card?.props.source)).toContain('autocompacts at 100k')
+  expect(String(card?.props.source)).not.toContain('autocompact')
   await desk.unmount()
   const term = await $.ui.mount({ ...BAND, surface: 'terminal', props: props() })
   expect(await term.find({ type: 'Text', text: /^40%$/ })).toBeDefined()
-  expect(await term.find({ type: 'Text', text: /80k\/200k \(autocompacts at 100k\)/ })).toBeDefined()
+  expect(await term.find({ type: 'Text', text: /80k\/200k/ })).toBeDefined()
+  expect(await term.find({ type: 'Text', text: /autocompact/ })).toBeUndefined()
   await term.unmount()
 })
 
@@ -219,12 +245,71 @@ test('Handoff: Claude writes the doc, the context is cleared, then Claude reads 
   await settle()
   expect(seen.runs).toEqual(['/clear '])
   expect(seen.prompts[1]).toContain(`just cleared for a handoff. Read the handoff doc at ${DOC}`)
+  // The new session's state was empty; the chain refilled it.
   expect(String((await ui.find({ type: 'Svg' }))?.props.source)).toContain('handoff 3/3')
 
   // The read-back turn ends the handoff.
+  seen.percent = 10
   await turnEnds($)
   await settle()
-  expect(String((await ui.find({ type: 'Svg' }))?.props.source)).not.toContain('handoff 3/3')
+  expect(String((await ui.find({ type: 'Svg' }))?.props.source)).not.toContain('handoff')
+
+  // Back past the mark minutes after the clear: a toast about the baseline, no new handoff.
+  seen.percent = 60
+  await turnEnds($)
+  await settle()
+  expect(seen.toasts.some(t => t.includes('baseline is too large'))).toBe(true)
+  expect(seen.prompts.length).toBe(2)
+  expect(seen.runs).toEqual(['/clear '])
+  expect(await ui.find({ key: 'handoff' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a read-back the old session could not send rides on the first prompt of the new one', async ($, on) => {
+  const seen = answer(on, 60)
+  seen.failReadBack = true
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
+  await ui.press({ key: 'handoff' })
+  seen.docs.push(DOC)
+  await turnEnds($)
+  await settle()
+  expect(seen.runs).toEqual(['/clear '])
+  expect(seen.prompts.length).toBe(1)
+  expect(seen.toasts.some(t => t.startsWith('The read-back did not start'))).toBe(true)
+
+  const first = await typed($, 'where were we?')
+  expect(first.drop).toBeUndefined()
+  expect((first.context ?? []).join('\n')).toContain(`Read the handoff doc at ${DOC}`)
+  // Once only.
+  const again = await typed($, 'and now?')
+  expect((again.context ?? []).join('\n')).not.toContain('Read the handoff doc')
+  await ui.unmount()
+})
+
+test('a prompt typed while the doc is written tells Claude to add to the doc', async ($, on) => {
+  const seen = answer(on, 60)
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
+  await ui.press({ key: 'handoff' })
+  await settle()
+  const mid = await typed($, 'one more thing')
+  expect((mid.context ?? []).join('\n')).toContain(`append a short note on this exchange to that doc`)
+  expect(seen.prompts.at(-1)).toBe('one more thing')
+  await ui.unmount()
+})
+
+test('a doc turn the user stopped keeps the context', async ($, on) => {
+  const seen = answer(on, 60)
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
+  await ui.press({ key: 'handoff' })
+  seen.docs.push(DOC)
+  await turnEnds($, 'aborted')
+  await settle()
+  expect(seen.runs).toEqual([])
+  expect(seen.toasts.some(t => t.startsWith('The handoff stopped with the turn'))).toBe(true)
+  expect(await ui.find({ key: 'handoff' })).toBeDefined()
   await ui.unmount()
 })
 
@@ -266,6 +351,32 @@ test("the engine's own compaction waits for a handoff while there is room", asyn
   await turnEnds($)
   await settle()
   expect(seen.prompts[0]).toContain('write a handoff doc')
+})
+
+test("a second autocompact in one turn, or one after a failed turn, runs: the request itself is too long", async ($, on) => {
+  const seen = answer(on, 60)
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  expect((await $.session.compact({ trigger: 'auto', messages: SUMMARY })).skip).toBeDefined()
+  expect((await $.session.compact({ trigger: 'auto', messages: SUMMARY })).skip).toBeUndefined()
+  expect(seen.compactions).toEqual(['auto'])
+  await turnEnds($, 'error')
+  await settle()
+  expect((await $.session.compact({ trigger: 'auto', messages: SUMMARY })).skip).toBeUndefined()
+  await turnEnds($)
+  await settle()
+  expect((await $.session.compact({ trigger: 'auto', messages: SUMMARY })).skip).toBeDefined()
+})
+
+test('a window of 0 draws nothing', async ($, on) => {
+  on('session.usage', () => ({ value: { ...usage(0), context: { tokens: 0, window: 0, percent: 0 } } }))
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('config.list', () => ({ value: [MODEL_ROW] }))
+  on('session.model', () => ({ value: 'claude-opus-5-5[1m]' }))
+  engineBand(on)
+  await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
+  expect(await ui.find({ type: 'Svg' })).toBeUndefined()
+  await ui.unmount()
 })
 
 test("near the hard limit the engine's compaction runs", async ($, on) => {
@@ -320,7 +431,7 @@ test('the toggle opens the breakdown, limits, cost and memory files, and closes 
     expect(await ui.find({ type: 'Text', text: /deferred/ })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: /\$1\.84 · cache hit 90%/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /\.claude\/CLAUDE\.md 1k/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /handoff at 100k · autocompact at 167k/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /handoff at 100k · autocompact held until 175k/ })).toBeDefined()
     await ui.press({ key: 'toggle' })
     expect(await ui.find({ type: 'Text', text: /^Messages$/ })).toBeUndefined()
     await ui.unmount()

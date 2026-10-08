@@ -133,8 +133,9 @@ const RULES: Rule[] = [
   { re: new RegExp(`(^[ \\t]*(?:export[ \\t]+)?${ENV_KEY}[ \\t]*=[ \\t]*)([^\\s"'][^\\r\\n]{7,})`, 'gm'), keep: 1, code: true },
   // KEY=value and KEY: value anywhere (YAML, wrangler output, source code), up to a space
   { re: new RegExp(`(\\b(?!PUBLIC_)${SECRET_KEY}\\s*[=:]\\s*["']?)([^\\s"',;]{8,})`, 'gi'), keep: 1, code: true, source: true },
-  // "accessToken": "..." in JSON
-  { re: new RegExp(`("(?!public)${SECRET_KEY}"\\s*:\\s*")([^"]{8,})`, 'gi'), keep: 1 },
+  // "accessToken": "..." in JSON; the key may be namespaced ("oauth:tokenCache",
+  // "auth.token"), as the Desktop app's config.json names its OAuth caches.
+  { re: new RegExp(`("(?!public)[A-Za-z0-9_:.-]{0,64}(?:${KEYWORDS})[A-Za-z0-9_]{0,64}"\\s*:\\s*")([^"]{8,})`, 'gi'), keep: 1 },
   // <writeToken>...</writeToken> in XML
   { re: /(<\w{0,64}(?:token|secret|password|apikey)\w{0,64}>)([^<]{12,})(?=<\/)/gi, keep: 1 },
   { re: /(Authorization:\s*(?:Bearer|token)\s+)([A-Za-z0-9._~+/=-]{20,})/gi, keep: 1 },

@@ -79,6 +79,11 @@ describe('redaction', () => {
   test('JSON and XML token fields', () => {
     const v = filler('k3j4h5g6f7', 30)
     expect(redact(`{"accessToken": "${v}", "expiresIn": 14400}`).text).not.toContain(v)
+    // The Desktop app's config.json: a namespaced key.
+    const desktop = redact(`"oauth:tokenCache": "${v}",`)
+    expect(desktop.count).toBe(1)
+    expect(desktop.text).toContain('"oauth:tokenCache": "')
+    expect(desktop.text).not.toContain(v)
     expect(redact(`<writeToken>${'sk' + filler('Ab12', 80)}</writeToken>`).count).toBeGreaterThan(0)
   })
   test('raw token shapes', () => {

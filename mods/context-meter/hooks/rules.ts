@@ -49,6 +49,10 @@ export function marks(window: number, autoCompactAt?: number): Marks {
   return { fading: Math.min(TIERS.fading.tokens, Math.round(window * TIERS.fading.share), dumb), dumb }
 }
 
+// The engine's own autocompact waits for a handoff until this close to the
+// window; past it, it runs so the session cannot jam.
+export const forcedCompactAt = (window: number) => window - 25_000
+
 // 0 under the fading mark, 1 fading, 2 dumb zone (the handoff).
 export const stageOf = (tokens: number, m: Marks) => (tokens >= m.dumb ? 2 : tokens >= m.fading ? 1 : 0)
 
@@ -79,7 +83,7 @@ export function averageGrowth(h: readonly number[], turns = 5): number | undefin
   return deltas.length ? deltas.reduce((a, b) => a + b, 0) / deltas.length : undefined
 }
 
-// Turns of average growth until `limit` (the autocompact point or the window).
+// Turns of average growth until `limit` (the handoff, or a forced compact).
 export function turnsLeft(tokens: number, limit: number, growth: number | undefined): number | undefined {
   if (growth === undefined || growth <= 0) return undefined
   return Math.max(0, Math.floor((limit - tokens) / growth))
@@ -150,8 +154,6 @@ export type Card = {
   window: number
   growth?: string
   left?: string
-  // Set when the session compacts below the model's limit: `autocompacts at 400k`.
-  windowNote?: string
   // A handoff in progress; it takes the place of growth and the countdown.
   status?: string
   // The session's marks; the window's own when absent.
@@ -173,7 +175,7 @@ export function cardSvg(c: Card): string {
   const m = c.marks ?? marks(c.window)
   const color = COLORS[contextLevel(c.tokens, m)]
   const zone = zoneName(c.tokens, m)
-  const sub = c.status ?? [c.growth, c.left, c.windowNote].filter(Boolean).join(' · ')
+  const sub = c.status ?? [c.growth, c.left].filter(Boolean).join(' · ')
   // Ticks across the ring at the fading and dumb-zone marks.
   const ticks = [m.fading, m.dumb].map(t => {
     const a = ((t / c.window) * 360 - 90) * (Math.PI / 180)
@@ -233,9 +235,12 @@ export function warning(stage: number, r: Reading, m: Marks): string {
 // Working notes in the repo, never committed (the folder ignores itself).
 export const HANDOFF_DIR = '.claude/handoff'
 
+// `2026-10-06-1000-abcdef12.md`: the time (UTC) keeps a retry from writing over
+// a good doc from earlier the same day.
 export function handoffPath(root: string, sessionId: string, now: number): string {
   const base = root.replace(/\\/g, '/').replace(/\/+$/, '')
-  return `${base}/${HANDOFF_DIR}/${new Date(now).toISOString().slice(0, 10)}-${sessionId.slice(0, 8)}.md`
+  const iso = new Date(now).toISOString()
+  return `${base}/${HANDOFF_DIR}/${iso.slice(0, 10)}-${iso.slice(11, 16).replace(':', '')}-${sessionId.slice(0, 8)}.md`
 }
 
 export const handoffPrompt = (path: string, r: Reading) =>

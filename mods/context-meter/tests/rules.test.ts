@@ -60,8 +60,7 @@ test('the card is one SVG with the figures and escaped text', () => {
     tokens: 104_000,
     window: 200_000,
     growth: '+6k last turn',
-    left: '≈11 turns to the handoff',
-    windowNote: 'model max <1M>',
+    left: '≈11 turns to <the handoff>',
     limits: [{ name: '5h', percent: 31, reset: 'in 2h 10m' }],
   }
   const svg = cardSvg(card)
@@ -69,12 +68,12 @@ test('the card is one SVG with the figures and escaped text', () => {
   expect(svg).toContain('>52%<')
   expect(svg).toContain('104k')
   expect(svg).toContain('resets in 2h 10m')
-  expect(svg).toContain('model max &lt;1M&gt;')
+  expect(svg).toContain('turns to &lt;the handoff&gt;')
   expect(svg).toContain('Dumb zone')
   expect(svg.length).toBeLessThan(131072)
   // A handoff in progress takes the place of growth and the countdown.
-  const busy = cardSvg({ ...card, status: 'handoff 2/3: compacting' })
-  expect(busy).toContain('handoff 2/3: compacting')
+  const busy = cardSvg({ ...card, status: 'handoff 2/3: clearing the context' })
+  expect(busy).toContain('handoff 2/3: clearing the context')
   expect(busy).not.toContain('+6k last turn')
 })
 
@@ -107,7 +106,7 @@ describe('marks', () => {
 describe('handoff', () => {
   const now = Date.parse('2026-10-06T10:00:00Z')
   test('the doc lives in the repo, under a folder git ignores', () => {
-    expect(handoffPath('Z:\\repo\\', 'abcdef1234567890', now)).toBe('Z:/repo/.claude/handoff/2026-10-06-abcdef12.md')
+    expect(handoffPath('Z:\\repo\\', 'abcdef1234567890', now)).toBe('Z:/repo/.claude/handoff/2026-10-06-1000-abcdef12.md')
   })
   test('each prompt names the doc', () => {
     const path = 'Z:/repo/.claude/handoff/x.md'

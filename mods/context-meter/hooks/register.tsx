@@ -20,6 +20,7 @@ import {
   handoffPrompt,
   lastDelta,
   limitName,
+  forcedCompactAt,
   marks,
   parseAlias,
   readPrompt,
@@ -47,12 +48,31 @@ const PHASE_TEXT: Record<Handoff['phase'], string> = {
   reading: 'handoff 3/3: Claude reads the doc back',
 }
 
+// `$.store` outlives the session, which `/clear` ends: the handoff in flight and
+// the time of the last clear live there, so the new session can finish the job
+// and does not start another one at once.
+const PENDING = 'pending-handoff'
+const LAST_CLEAR = 'last-clear'
+type Pending = { path: string; at: number }
+// No automatic handoff this soon after a clear: a baseline past the dumb-zone
+// mark (a huge doc, a tiny autoCompactWindow) would loop doc, clear, doc.
+const COOLDOWN_MS = 10 * 60_000
+
+// Per turn: how often the engine's autocompact was held, and how the last turn
+// ended. A second hold in one turn means the request itself is too long, and
+// only a compaction gets the session out; so does a turn that ended in error.
+let holdsThisTurn = 0
+let lastTurnFailed = false
+
 // The free figures: fill, limits and cost. Cheap enough for every tool call.
-async function refresh($: EngineInterface, isTurnEnd: boolean) {
+// `tokensHint` stands in when the engine has no count yet (right after a compaction).
+async function refresh($: EngineInterface, isTurnEnd: boolean, tokensHint?: number) {
   const usage = await $.session.usage()
   // Always the model's full window: the percent is a share of it, whatever
   // window the session happens to compact at.
-  const { tokens, window } = usage.context
+  const { window } = usage.context
+  if (!(window > 0)) return
+  const tokens = usage.context.tokens ?? tokensHint
   const percent = tokens === undefined ? undefined : Math.round((tokens / window) * 100)
   await update($, meter, prev => {
     const history = [...(prev?.history ?? [])]
@@ -71,12 +91,24 @@ async function refresh($: EngineInterface, isTurnEnd: boolean) {
   })
   if (tokens === undefined || percent === undefined) return
   const m = marks(window, (await read($, detail))?.autoCompactAt)
-  const alert = crossed(stageOf(tokens, m), await read($, warned))
-  await update($, warned, () => alert.warned)
-  if (alert.level === undefined) return
-  $.ui.toast(warning(alert.level, { tokens, window, percent }, m), { timeoutMs: 12000 })
+  // Decided inside the update, so two refreshes in flight (parallel tool calls)
+  // cannot both see the old value and both toast.
+  let level: number | undefined
+  await update($, warned, prev => {
+    const alert = crossed(stageOf(tokens, m), prev)
+    level = alert.level
+    return alert.warned
+  })
+  if (level === undefined) return
+  $.ui.toast(warning(level, { tokens, window, percent }, m), { timeoutMs: 12000 })
+  if (level < 2) return
+  const lastClear = Number((await $.store.get(LAST_CLEAR)) ?? 0)
+  if ((await $.clock.now()) - lastClear < COOLDOWN_MS) {
+    $.ui.toast(`Already past ${compact(m.dumb)} right after a handoff: the baseline is too large. Shrink the doc, memory files or MCP tools before the next one.`)
+    return
+  }
   // The handoff runs between turns: queue it for the end of this one.
-  if (alert.level >= 2) await update($, handoff, prev => prev ?? { phase: 'queued' as const })
+  await update($, handoff, prev => prev ?? { phase: 'queued' as const })
 }
 
 // The /context breakdown, estimated locally (no token-count requests).
@@ -144,11 +176,15 @@ async function beginHandoff($: EngineInterface) {
 
 // Step 2, at the end of the doc's turn: a fresh context, then step 3. At the end
 // of the read-back turn: done.
-async function advanceHandoff($: EngineInterface) {
+async function advanceHandoff($: EngineInterface, isAborted: boolean) {
   const job = await read($, handoff)
   if (job?.phase === 'reading') return void (await update($, handoff, () => null))
   if (job?.phase !== 'writing' || !job.path) return
   const path = job.path
+  if (isAborted) {
+    $.ui.toast(`The handoff stopped with the turn: the context was kept. Press Handoff to try again.`)
+    return void (await update($, handoff, () => null))
+  }
   const st = await $.fs.stat(path).catch(() => undefined)
   // Two seconds of slack between the engine's clock and the file system's.
   if (st?.kind === 'file' && st.mtimeMs >= (job.since ?? 0) - 2000) {
@@ -165,23 +201,45 @@ async function advanceHandoff($: EngineInterface) {
 
 // Steps 2 and 3: `/clear` (or `/compact` with the doc named, where `/clear` is
 // refused), then the read-back prompt. `/clear` starts a new session with empty
-// state and no session.start, so the path rides this chain and the meter refills here.
+// state and no session.start, so the path rides this chain and the meter refills
+// here. The store keeps the job too: should this chain die with the old session,
+// the first prompt of the new one picks the read-back up (see prompt.submit).
 async function resetContext($: EngineInterface, path: string) {
+  const at = await $.clock.now()
+  await $.store.set(PENDING, { path, at } satisfies Pending)
   let how: 'cleared' | 'compacted' = 'cleared'
   try {
     await $.command.run({ command: 'clear', args: '' })
+    await $.store.set(LAST_CLEAR, at)
   } catch {
     how = 'compacted'
-    if (!(await runCommand($, 'compact', compactInstructions(path)))) return void (await update($, handoff, () => null))
+    if (!(await runCommand($, 'compact', compactInstructions(path)))) {
+      await $.store.delete(PENDING)
+      return void (await update($, handoff, () => null))
+    }
   }
   await update($, handoff, () => ({ phase: 'reading' as const, path }))
   await quietly(refreshDetail($))
   await quietly(refresh($, false))
   await quietly(refreshSetup($))
-  await $.prompt.submit({ text: readPrompt(path, how) }).catch(async err => {
+  try {
+    await $.prompt.submit({ text: readPrompt(path, how) })
+    await $.store.delete(PENDING)
+  } catch (err) {
     $.ui.toast(`The read-back did not start: ${message(err)}. The doc is at ${path}.`)
     await update($, handoff, () => null)
-  })
+  }
+}
+
+// A read-back left over by a session that ended before it ran, if recent.
+async function pendingReadBack($: EngineInterface): Promise<Pending | undefined> {
+  const p = (await $.store.get(PENDING)) as Pending | undefined
+  if (!p?.path) return undefined
+  if ((await $.clock.now()) - p.at > 30 * 60_000) {
+    await $.store.delete(PENDING)
+    return undefined
+  }
+  return p
 }
 
 export const register: Register = on => {
@@ -204,12 +262,36 @@ export const register: Register = on => {
     return yield* next(e)
   })
 
-  // Live during a turn: each finished tool call follows a fresh API response.
+  // Live during a turn: each finished main-loop tool call follows a fresh API
+  // response. Subagents have their own context.
   on('tool.call', async ($, e, next) => {
     const result = await next(e)
     // Not awaited, so the meter never holds up a tool result.
-    void quietly(refresh($, false))
+    if (e.agentId === undefined) void quietly(refresh($, false))
     return result
+  })
+
+  // The person's own prompt while a handoff runs: the doc is already written, so
+  // Claude adds what this exchange changes. In a session that `/clear` started
+  // without finishing the read-back, the first prompt carries the read-back.
+  on('prompt.submit', async ($, e, next) => {
+    // Typed at the terminal, or sent by the Desktop app (`sdk`); never a plugin's own.
+    if (e.origin.kind !== 'composer' && e.origin.kind !== 'sdk') return next(e)
+    const job = await read($, handoff)
+    if (job?.path && (job.phase === 'writing' || job.phase === 'clearing')) {
+      return next({
+        ...e,
+        context: [
+          ...(e.context ?? []),
+          `A handoff doc for this session was just written to ${job.path}, and the context is about to be cleared. After you answer, append a short note on this exchange to that doc so nothing is lost.`,
+        ],
+      })
+    }
+    const left = job === null ? await pendingReadBack($) : undefined
+    if (left === undefined) return next(e)
+    await $.store.delete(PENDING)
+    await update($, handoff, () => ({ phase: 'reading' as const, path: left.path }))
+    return next({ ...e, context: [...(e.context ?? []), readPrompt(left.path, 'cleared')] })
   })
 
   on('session.compact', async ($, e, next) => {
@@ -217,14 +299,26 @@ export const register: Register = on => {
     const job = await read($, handoff)
     const m = await read($, meter)
     // The engine's own compaction never runs without a handoff doc. While there
-    // is room, hold it and hand off when the turn ends. Near the hard limit it runs.
-    if (e.trigger === 'auto' && job?.phase !== 'clearing' && m && m.tokens < m.window - 25_000) {
+    // is room, hold it and hand off when the turn ends. Near the hard limit it
+    // runs; so does the second attempt in one turn, and the one after a failed
+    // turn, because then the request itself is too long and no doc can help.
+    if (
+      e.trigger === 'auto' &&
+      job?.phase !== 'clearing' &&
+      m &&
+      m.tokens < forcedCompactAt(m.window) &&
+      holdsThisTurn === 0 &&
+      !lastTurnFailed
+    ) {
+      holdsThisTurn++
       if (job === null) await update($, handoff, () => ({ phase: 'queued' as const }))
       return { skip: 'context-meter writes a handoff doc first, when this turn ends' }
     }
     const result = await next(e)
-    // A compaction ends no turn: record its drop and redraw at once.
-    void quietly(refreshDetail($).then(() => refresh($, true)))
+    // A compaction ends no turn: record its drop and redraw at once. The engine
+    // has no count until the next response, so the compaction's own stands in.
+    const after = result.skip === undefined ? result.tokensAfter : undefined
+    void quietly(refreshDetail($).then(() => refresh($, true, after)))
     return result
   })
 
@@ -232,7 +326,9 @@ export const register: Register = on => {
     const result = await next(e)
     // Subagents have their own context; only the main conversation counts here.
     if (e.agentId === undefined) {
-      await quietly(advanceHandoff($))
+      holdsThisTurn = 0
+      lastTurnFailed = e.reason === 'error'
+      await quietly(advanceHandoff($, e.isAborted || e.reason !== 'answer'))
       await quietly(refreshDetail($))
       await quietly(refresh($, true))
       if ((await read($, handoff))?.phase === 'queued') await quietly(beginHandoff($))
@@ -260,18 +356,16 @@ export const register: Register = on => {
     const color = contextLevel(m.tokens, mk)
     const delta = lastDelta(m.history)
     const growth = averageGrowth(m.history)
-    // Before the dumb zone, count down to it (the handoff); inside it, to autocompact.
+    // Before the dumb zone, count down to it (the handoff). Inside it, to the
+    // forced compact the band holds off until then, or to full with autocompact off.
     const isDumb = m.tokens >= mk.dumb
-    const left = turnsLeft(m.tokens, isDumb ? (autoCompactAt ?? m.window) : mk.dumb, growth)
+    const forcedAt = forcedCompactAt(m.window)
+    const left = turnsLeft(m.tokens, isDumb ? (autoCompactAt ? forcedAt : m.window) : mk.dumb, growth)
     const leftText =
-      left === undefined ? undefined : `≈${left} turns to ${isDumb ? (autoCompactAt ? 'autocompact' : 'full') : 'the handoff'}`
+      left === undefined ? undefined : `≈${left} turns to ${isDumb ? (autoCompactAt ? 'a forced compact' : 'full') : 'the handoff'}`
     const status = job ? PHASE_TEXT[job.phase] : undefined
     const current = s?.alias ? parseAlias(s.alias) : undefined
     const effort = typeof s?.effort === 'string' ? s.effort : undefined
-    // Only when this session compacts well before the model's window (a leftover
-    // `autoCompactWindow`, say): the meter's percent still counts the full window.
-    const compactAt = d ? Math.min(d.autoCompactAt ?? d.window, d.window) : undefined
-    const windowNote = compactAt && compactAt < m.window * 0.9 ? `autocompacts at ${compact(compactAt)}` : undefined
 
     const toggle = (
       <Button
@@ -299,7 +393,6 @@ export const register: Register = on => {
             window: m.window,
             growth: delta !== undefined ? `${signed(delta)} last turn` : undefined,
             left: leftText,
-            windowNote,
             status,
             marks: mk,
             limits: m.limits.map(l => ({ name: limitName(l.kind), percent: l.percent, reset: resetIn(l.resetsAt, now) })),
@@ -318,7 +411,6 @@ export const register: Register = on => {
           <Text color={color}>{zoneName(m.tokens, mk)}</Text>
           <Text dimColor>
             {compact(m.tokens)}/{compact(m.window)}
-            {windowNote ? ` (${windowNote})` : ''}
             {status ? ` · ${status}` : ''}
             {!status && delta !== undefined ? ` · ${signed(delta)} last turn` : ''}
             {!status && leftText ? ` · ${leftText}` : ''}
@@ -373,7 +465,7 @@ export const register: Register = on => {
           {/* Doc, fresh context, read-back: the steps the meter runs on entering the dumb zone. */}
           {isDumb && !e.props.isWorking && (job === null || job.phase === 'queued') ? (
             <Box marginLeft={3}>
-              <Button key="handoff" label="Handoff" onPress={() => beginHandoff($)} />
+              <Button key="handoff" label="Handoff" onPress={() => quietly(beginHandoff($))} />
             </Box>
           ) : null}
         </Box>
@@ -429,7 +521,7 @@ export const register: Register = on => {
               {m.history.length >= 2 ? `${sparkline(m.history.slice(-12))} ` : 'one turn so far'}
               {growth !== undefined ? ` avg ${signed(Math.round(growth))}/turn` : ''}
               {` · handoff at ${compact(mk.dumb)}`}
-              {autoCompactAt ? ` · autocompact at ${compact(autoCompactAt)}` : ' · autocompact off'}
+              {autoCompactAt ? ` · autocompact held until ${compact(forcedAt)}` : ' · autocompact off'}
             </Text>
           </Box>
           {m.limits.length ? (
