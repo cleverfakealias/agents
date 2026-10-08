@@ -17,7 +17,7 @@ const breakdown = {
   mcpTools: [],
 } as unknown as SessionContextBreakdown
 
-// A 200k window: the marks are 70k (fading) and 100k (dumb zone, where the handoff runs).
+// A 200k window: the marks are 70k (fading) and 100k (dumb zone, where the Handoff button turns solid).
 // `compactAt` stands for `autoCompactWindow`: the window the breakdown measures against.
 const usage = (percent: number, args?: SessionUsageArgs, compactAt = 200_000): SessionUsage => ({
   startedAt: 0,
@@ -290,24 +290,19 @@ test('a read-back the old session could not send rides on the first prompt of th
   await ui.unmount()
 })
 
-test("another project's pending read-back is left for its own session", async ($, on) => {
-  const seen = answer(on, 20)
+test('a handoff leaves nothing in the shared store, so no other chat can see it', async ($, on) => {
+  const seen = answer(on, 60)
+  seen.failReadBack = true
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
-  // The store is one file for every open session: a handoff in another repo
-  // parked its job there a minute ago.
-  const other = { path: 'Z:/other/.claude/handoff/2026-10-08-0516-34e20210.md', at: NOW - 60_000, root: 'Z:\\other' }
-  seen.store.set('pending-handoff', other)
-  const first = await typed($, 'where were we?')
-  expect((first.context ?? []).join('\n')).not.toContain('Read the handoff doc')
-  expect(seen.store.get('pending-handoff')).toEqual(other)
-  // The cooldown after a clear is per repo too: this one may hand off at once.
-  seen.store.set('last-clear', { 'Z:/other': NOW - 1000 })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
-  seen.percent = 60
+  await ui.press({ key: 'handoff' })
+  seen.docs.push(DOC)
   await turnEnds($)
   await settle()
-  expect(seen.toasts.some(t => t.includes('baseline is too large'))).toBe(false)
-  expect(seen.prompts.some(t => t.includes('write a handoff doc'))).toBe(true)
+  expect(seen.runs).toEqual(['/clear '])
+  // The store is one file for every open chat of every project: even with a
+  // read-back still owed, the job stays in this chat's own process.
+  expect([...seen.store.keys()]).toEqual([])
   await ui.unmount()
 })
 
@@ -365,16 +360,21 @@ test('without a doc after two turns, nothing compacts and a toast says so', asyn
   await ui.unmount()
 })
 
-test("the engine's own compaction waits for a handoff while there is room", async ($, on) => {
+test("the engine's own compaction is held while there is room, and nothing runs on its own", async ($, on) => {
   const seen = answer(on, 60)
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
   const held = await $.session.compact({ trigger: 'auto', messages: SUMMARY })
-  expect(held.skip).toContain('handoff doc first')
+  expect(held.skip).toContain('holds autocompact')
   expect(seen.compactions).toEqual([])
-  // The handoff starts when the turn ends.
+  expect(seen.toasts.filter(t => t.startsWith('Autocompact held')).length).toBe(1)
+  // No handoff starts when the turn ends: the person starts it.
   await turnEnds($)
   await settle()
-  expect(seen.prompts[0]).toContain('write a handoff doc')
+  expect(seen.prompts).toEqual([])
+  expect(seen.runs).toEqual([])
+  // The next turn's hold is quiet: announced once per context.
+  await $.session.compact({ trigger: 'auto', messages: SUMMARY })
+  expect(seen.toasts.filter(t => t.startsWith('Autocompact held')).length).toBe(1)
 })
 
 test("a second autocompact in one turn, or one after a failed turn, runs: the request itself is too long", async ($, on) => {
@@ -411,16 +411,20 @@ test("near the hard limit the engine's compaction runs", async ($, on) => {
   expect(seen.compactions).toEqual(['auto'])
 })
 
-test('entering the dumb zone queues the handoff for the end of the turn', async ($, on) => {
+test('entering the dumb zone warns and offers the button; the handoff never starts by itself', async ($, on) => {
   const seen = answer(on, 60)
   await $.session.start({ cwd: '.', surface: 'desktop', isInteractive: true })
-  expect(seen.toasts.some(t => t.includes('writes a handoff doc'))).toBe(true)
+  expect(seen.toasts.some(t => t.includes('Press Handoff (or type /handoff)'))).toBe(true)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: props() })
-  expect(String((await ui.find({ type: 'Svg' }))?.props.source)).toContain('handoff queued')
+  expect(String((await ui.find({ type: 'Svg' }))?.props.source)).not.toContain('handoff queued')
+  // A solid button now, not the quiet one.
+  expect((await ui.find({ key: 'handoff' }))?.props.plain).toBeUndefined()
   await ui.unmount()
   await turnEnds($)
+  await turnEnds($)
   await settle()
-  expect(seen.prompts[0]).toContain('write a handoff doc')
+  expect(seen.prompts).toEqual([])
+  expect(seen.runs).toEqual([])
 })
 
 test('a refused command shows a toast instead of failing silently', async ($, on) => {

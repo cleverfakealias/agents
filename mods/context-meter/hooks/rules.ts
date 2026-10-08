@@ -32,8 +32,8 @@ export const level = (percent: number) => (percent >= 90 ? 'error' : percent >= 
 // too. Set a little above the measured knee: no results exist yet for the 5.x models.
 export const TIERS = {
   fading: { tokens: 200_000, share: 0.35 },
-  // The dumb zone, and the handoff: a doc, a fresh context, the doc read back.
-  // The doc comes here, while the model is still sharp, not at autocompact.
+  // The dumb zone, where the Handoff button turns solid: a doc, a fresh
+  // context, the doc read back, each time the person asks for it, never alone.
   dumb: { tokens: 350_000, share: 0.5 },
 } as const
 
@@ -265,8 +265,8 @@ export function crossed(stage: number, warned: number): { level?: number; warned
 export function warning(stage: number, r: Reading, m: Marks): string {
   const fill = `Context holds ${compact(r.tokens)} (${r.percent}% of ${compact(r.window)}).`
   if (stage >= 2)
-    return `${fill} Past ${compact(m.dumb)} is the dumb zone: recall and reasoning drop, and each turn costs more. When this turn ends, Claude writes a handoff doc, the context is cleared, and Claude reads the doc back.`
-  return `${fill} Past ${compact(m.fading)}, answer quality tends to slip. The handoff runs at ${compact(m.dumb)}.`
+    return `${fill} Past ${compact(m.dumb)} is the dumb zone: recall and reasoning drop, and each turn costs more. Press Handoff (or type /handoff) at a good stopping point: Claude writes a state doc, the context is cleared, and Claude reads the doc back.`
+  return `${fill} Past ${compact(m.fading)}, answer quality tends to slip. The dumb zone starts at ${compact(m.dumb)}; Handoff is yours to press.`
 }
 
 // A session that loaded a smaller compaction window than the model has (an old

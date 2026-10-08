@@ -174,9 +174,9 @@ describe('warnings', () => {
   test('each text names the step to take', () => {
     const m = marks(1_000_000)
     const r = (tokens: number) => ({ tokens, window: 1_000_000, percent: tokens / 10_000 })
-    expect(warning(1, r(210_000), m)).toContain('Past 200k, answer quality tends to slip. The handoff runs at 350k.')
+    expect(warning(1, r(210_000), m)).toContain('Past 200k, answer quality tends to slip. The dumb zone starts at 350k; Handoff is yours to press.')
     expect(warning(2, r(360_000), m)).toContain('dumb zone')
-    expect(warning(2, r(360_000), m)).toContain('Claude writes a handoff doc, the context is cleared')
+    expect(warning(2, r(360_000), m)).toContain('Claude writes a state doc, the context is cleared')
   })
 })
 
