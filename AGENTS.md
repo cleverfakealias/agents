@@ -2,7 +2,9 @@
 
 This repo is a single, condensed agent scaffold (`scaffold/`) plus a short
 per-provider reference (`providers.md`). The scaffold is a **template** — it is
-copied into target repos, never executed here.
+copied into target repos, never executed here. `mods/` holds user-level mods,
+and `factory/` is the software factory plugin (spec, build, review, ship). Its
+skills follow the same ≤90-line limit.
 
 ## Rules
 

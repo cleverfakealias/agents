@@ -23,6 +23,7 @@ scaffold/                 ← copy this into your repo
     └── skills/zenn/      /zenn: optional spec-first workflow for larger work
 providers.md              notes for Cursor / Copilot / Codex / Gemini / Devin
 mods/                     user-level Claude Code mods (see mods/README.md)
+factory/                  plugin: spec → build → review → ship, with gates (see factory/README.md)
 tests/                    node --test "tests/*.test.mjs": the hook, the scaffold rules, the mods
 ```
 
@@ -124,6 +125,17 @@ that kept repeating across real sessions:
 
 Setup, the full behaviour of each, and how to work on them:
 [mods/README.md](mods/README.md).
+
+## Software factory
+
+`factory/` is a Claude Code plugin that takes one feature from your
+description to production: `/factory:spec` interviews you and writes a
+testable spec, `/factory:build` writes failing tests first and then the code,
+`/factory:review` runs independent reviewers and refutes weak findings, and
+`/factory:ship` opens the PR, checks CI and the preview, and records lessons.
+You approve the spec, merge, and approve production. It builds on this
+scaffold (AGENTS.md commands, the checks hook, the permission rules). Design,
+setup and research: [factory/README.md](factory/README.md).
 
 ## Working on this repo
 
