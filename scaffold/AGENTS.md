@@ -17,6 +17,7 @@
 - **Typecheck**: <!-- command, or delete this line -->
 - **Test**: <!-- command, and how to run a single test -->
 - **Run**: <!-- how to start the app locally -->
+- **Deploy**: <!-- preview command or "PR previews from the host"; production command (a person runs or approves it); smoke check URL or command -->
 
 ## Conventions
 

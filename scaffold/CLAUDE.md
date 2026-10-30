@@ -16,6 +16,8 @@
   Pushing, `git reset --hard`, `git clean`, merging a PR, and editing CI workflows
   always ask the user first. If a rule stops you, say so and wait; don't look for
   another route to the same result.
-- **Planning**: `/zenn` runs the spec-first workflow described in AGENTS.md.
+- **Planning**: `/zenn` runs the spec-first workflow described in AGENTS.md. When
+  the `factory` plugin is loaded, `/factory` runs the full spec, build, review and
+  ship pipeline on the same `specs/` folders.
 - **Review**: `/code-review` and `/security-review` are built in. Use them before
   merging significant changes.

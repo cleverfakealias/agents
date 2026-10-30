@@ -1,0 +1,17 @@
+{
+  "description": "Asks the user before any edit to a factory feature's locked acceptance tests (specs/<slug>/tests.lock) while it is in build, review or ship.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/test-lock.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
